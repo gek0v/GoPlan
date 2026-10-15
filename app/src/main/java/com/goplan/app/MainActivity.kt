@@ -53,7 +53,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        handleIncomingIntent(intent)
+        if (savedInstanceState == null) {
+            handleIncomingIntent(intent)
+        }
 
         setContent {
             GoPlanTheme {
@@ -72,6 +74,7 @@ class MainActivity : ComponentActivity() {
         val extractedText = IntentHandler.extractIncomingText(this, intent)
         if (!extractedText.isNullOrBlank()) {
             intent?.action = null
+            setIntent(Intent(Intent.ACTION_MAIN))
             lifecycleScope.launch {
                 val expansion = app.preferencesManager.getRecentExpansion(maxAgeMinutes = 30)
                 recentExpansion = expansion
@@ -246,6 +249,17 @@ class MainActivity : ComponentActivity() {
                 incomingText = incomingText,
                 workspaces = workspaces,
                 recentExpansion = recentExpansion,
+                ideasProvider = { ws ->
+                    withContext(Dispatchers.IO) {
+                        try {
+                            app.workspaceRepository.getTodoDocument(ws).lines
+                                .filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>()
+                                .map { it.idea }
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                },
                 onDismiss = {
                     incomingSharedText = null
                 },

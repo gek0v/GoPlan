@@ -32,7 +32,7 @@ object IntentHandler {
             try {
                 context.startActivity(geminiIntent)
                 return
-            } catch (_: ActivityNotFoundException) {
+            } catch (_: Exception) {
                 // Fall back to chooser
             }
         }
@@ -58,6 +58,7 @@ object IntentHandler {
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, contentUri)
+            clipData = android.content.ClipData.newRawUri("", contentUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
@@ -78,7 +79,7 @@ object IntentHandler {
         }
 
         val extraText = try {
-            intent.getStringExtra(Intent.EXTRA_TEXT)
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
         } catch (_: Exception) {
             null
         }

@@ -140,7 +140,7 @@ fun ImportPlanBottomSheet(
         }
     }
 
-    var selectedWorkspace by remember { mutableStateOf(preselectedWorkspace) }
+    var selectedWorkspace by remember(preselectedWorkspace) { mutableStateOf(preselectedWorkspace) }
     var workspaceIdeas by remember { mutableStateOf<List<Idea>>(emptyList()) }
     var selectedIdea by remember { mutableStateOf<Idea?>(null) }
 
