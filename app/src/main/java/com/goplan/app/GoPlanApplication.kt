@@ -1,8 +1,24 @@
 package com.goplan.app
 
 import android.app.Application
+import com.goplan.app.data.repository.WorkspaceRepository
+import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.domain.parser.TodoMarkdownParser
 
 class GoPlanApplication : Application() {
+
+    val workspaceFileManager: WorkspaceFileManager by lazy {
+        val baseDir = getExternalFilesDir(null)?.resolve("GoPlan") ?: filesDir.resolve("GoPlan")
+        WorkspaceFileManager(baseDir)
+    }
+
+    val todoMarkdownParser: TodoMarkdownParser by lazy {
+        TodoMarkdownParser()
+    }
+
+    val workspaceRepository: WorkspaceRepository by lazy {
+        WorkspaceRepository(workspaceFileManager, todoMarkdownParser)
+    }
 
     override fun onCreate() {
         super.onCreate()

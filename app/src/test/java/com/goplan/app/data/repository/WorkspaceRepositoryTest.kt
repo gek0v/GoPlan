@@ -1,0 +1,170 @@
+package com.goplan.app.data.repository
+
+import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.domain.model.IdeaStatus
+import com.goplan.app.domain.model.PlanLink
+import com.goplan.app.domain.model.TodoDocument
+import com.goplan.app.domain.model.TodoLine
+import com.goplan.app.domain.model.Workspace
+import com.goplan.app.domain.parser.TodoMarkdownParser
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import java.io.File
+import java.nio.file.Files
+
+class WorkspaceRepositoryTest {
+
+    private lateinit var tempBaseDir: File
+    private lateinit var fileManager: WorkspaceFileManager
+    private lateinit var parser: TodoMarkdownParser
+    private lateinit var repository: WorkspaceRepository
+
+    @Before
+    fun setUp() {
+        tempBaseDir = Files.createTempDirectory("goplan_test").toFile()
+        fileManager = WorkspaceFileManager(tempBaseDir)
+        parser = TodoMarkdownParser()
+        repository = WorkspaceRepository(fileManager, parser)
+    }
+
+    @After
+    fun tearDown() {
+        tempBaseDir.deleteRecursively()
+    }
+
+    @Test
+    fun testCreateWorkspaceInitializesStructure() {
+        val ws = repository.createWorkspace("Alpha")
+
+        assertEquals("Alpha", ws.id)
+        assertEquals("Alpha", ws.name)
+        assertTrue(ws.rootDir.exists())
+        assertTrue(ws.rootDir.isDirectory)
+
+        val contextFile = File(ws.rootDir, "CONTEXT.md")
+        assertTrue(contextFile.exists())
+        val contextContent = contextFile.readText()
+        assertTrue(contextContent.contains("# Contexto"))
+
+        val todoFile = File(ws.rootDir, "TODO.md")
+        assertTrue(todoFile.exists())
+        val todoContent = todoFile.readText()
+        assertTrue(todoContent.contains("# Tareas"))
+
+        val planesDir = File(ws.rootDir, "planes")
+        assertTrue(planesDir.exists())
+        assertTrue(planesDir.isDirectory)
+
+        val allWorkspaces = repository.getWorkspaces()
+        assertEquals(1, allWorkspaces.size)
+        assertEquals(ws.id, allWorkspaces[0].id)
+    }
+
+    @Test
+    fun testSaveAndGetTodoDocumentWithAtomicWrites() {
+        val ws = repository.createWorkspace("Alpha")
+
+        val initialDoc = repository.getTodoDocument(ws)
+        assertNotNull(initialDoc)
+
+        val updatedDoc = parser.addIdea(initialDoc, "Nueva idea de prueba", setOf("mobile", "kotlin"))
+        repository.saveTodoDocument(ws, updatedDoc)
+
+        // Verify .tmp file does not linger
+        val tmpFile = File(ws.rootDir, "TODO.md.tmp")
+        assertFalse("Temporary .tmp file should not remain after atomic move", tmpFile.exists())
+
+        // Verify content on disk
+        val rawTodo = File(ws.rootDir, "TODO.md").readText()
+        assertTrue(rawTodo.contains("Nueva idea de prueba"))
+        assertTrue(rawTodo.contains("#mobile"))
+
+        // Verify reloading parsed document
+        val reloadedDoc = repository.getTodoDocument(ws)
+        val hasIdea = reloadedDoc.lines.any {
+            it is TodoLine.Task && it.idea.title == "Nueva idea de prueba" && it.idea.tags.contains("mobile")
+        }
+        assertTrue(hasIdea)
+    }
+
+    @Test
+    fun testSaveAndReadPlanFiles() {
+        val ws = repository.createWorkspace("Alpha")
+
+        val planContent = "# Plan OAuth\nEspecificación técnica para OAuth Google"
+        val savedFile = repository.savePlanFile(ws, "oauth-google.md", planContent)
+
+        assertTrue(savedFile.exists())
+        val parent = savedFile.parentFile
+        assertNotNull(parent)
+        assertEquals("planes", parent!!.name)
+        assertEquals("oauth-google.md", savedFile.name)
+
+        // Verify no .tmp file left behind in planes directory
+        val tmpFile = File(parent, "oauth-google.md.tmp")
+        assertFalse(tmpFile.exists())
+
+        // Read using "planes/oauth-google.md"
+        val readWithSubdir = repository.readPlanFile(ws, "planes/oauth-google.md")
+        assertEquals(planContent, readWithSubdir)
+
+        // Read using just "oauth-google.md"
+        val readDirect = repository.readPlanFile(ws, "oauth-google.md")
+        assertEquals(planContent, readDirect)
+    }
+
+    @Test
+    fun testSaveAndGetContextContent() {
+        val ws = repository.createWorkspace("Alpha")
+
+        val initialContext = repository.getContextContent(ws)
+        assertTrue(initialContext.isNotBlank())
+
+        val newContext = "# Custom Stack\n- Kotlin\n- Jetpack Compose"
+        repository.saveContextContent(ws, newContext)
+
+        val updatedContext = repository.getContextContent(ws)
+        assertEquals(newContext, updatedContext)
+        assertEquals(newContext, File(ws.rootDir, "CONTEXT.md").readText())
+    }
+
+    @Test
+    fun testGetWorkspacesListsMultipleAlphabetically() {
+        repository.createWorkspace("Beta")
+        repository.createWorkspace("Alpha")
+        repository.createWorkspace("Gamma")
+
+        val workspaces = repository.getWorkspaces()
+        assertEquals(3, workspaces.size)
+        assertEquals(listOf("Alpha", "Beta", "Gamma"), workspaces.map { it.name })
+    }
+
+    @Test
+    fun testPathTraversalDefenseInPlanFiles() {
+        val ws = repository.createWorkspace("Alpha")
+
+        // Attempt path traversal when saving plan file
+        val savedFile = repository.savePlanFile(ws, "../../evil.md", "Malicious content")
+
+        // Must be saved inside ws.rootDir/planes, not in root or tempBaseDir
+        val outsideFile = File(tempBaseDir, "evil.md")
+        assertFalse("File must not be created outside workspace", outsideFile.exists())
+
+        val parent = savedFile.parentFile
+        assertNotNull(parent)
+        assertEquals(File(ws.rootDir, "planes").canonicalPath, parent!!.canonicalPath)
+        assertEquals("evil.md", savedFile.name)
+        assertEquals("Malicious content", repository.readPlanFile(ws, "evil.md"))
+    }
+
+    @Test(expected = SecurityException::class)
+    fun testPathTraversalDefenseInReadPlanFile() {
+        val ws = repository.createWorkspace("Alpha")
+        repository.readPlanFile(ws, "../../evil.md")
+    }
+}
