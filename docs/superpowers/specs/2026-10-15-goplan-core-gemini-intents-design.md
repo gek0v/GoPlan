@@ -29,6 +29,9 @@ Esta ubicación garantiza:
 * Cero fricción de permisos de tiempo de ejecución (no requiere `MANAGE_EXTERNAL_STORAGE` ni árboles SAF `DocumentFile` en Android 10 a 15).
 * Accesibilidad cuando el dispositivo se conecta por USB al PC en modo transferencia de archivos (MTP).
 
+> [!NOTE] Comportamiento de Scoped Storage (Android 11+)
+> En Android 11+, la ruta `Android/data/<package_name>/files/` está restringida para otras aplicaciones instaladas en el propio móvil (como Obsidian para Android o gestores de archivos estándar). Sin embargo, **es 100% accesible vía USB conectando el teléfono al PC**, y para la app GoPlan. Para la Fase 1, la transferencia con el entorno local de desarrollo se realiza vía USB o mediante el módulo de exportación rápida (LocalSend, Quick Share, ZIP). La integración opcional con Obsidian móvil mediante Storage Access Framework (SAF / `DocumentFile`) se deja abierta para una fase posterior.
+
 ### 2.2. Jerarquía de Carpetas por Workspace
 ```text
 GoPlan/
@@ -109,6 +112,12 @@ data class TodoDocument(
 )
 ```
 
+#### Estrategia de Identificadores Estables (`idea.id`)
+Para evitar que la *Loopback Cache* falle si el usuario reordena o edita `TODO.md` mientras Gemini procesa el plan:
+1. **Detección prioritaria de ID explícito:** El parser inspecciona si la línea contiene un identificador incrustado como comentario HTML al final: `<!-- id:([a-zA-Z0-9_-]+) -->`. Si existe, se usa como `idea.id`.
+2. **Inyección en expansión:** Al pulsar "Expandir con Gemini", si la tarea aún no posee un `<!-- id:... -->`, la app genera un UUID corto (ej. `a1b2c3d4`), lo escribe al final de la línea en `TODO.md` y lo registra en la caché.
+3. **Fallback por Slug de Título:** Si no existe comentario HTML, el `id` se deriva limpiando el título sin etiquetas ni enlaces: `cleanTitle.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-")`. Esto asegura idempotencia y estabilidad tanto en memoria como tras reescrituras externas.
+
 ### 3.4. Parser No Destructivo (`TodoMarkdownParser`)
 * **Lectura:**
   * Detecta tareas mediante la expresión regular:
@@ -158,10 +167,15 @@ data class TodoDocument(
    ```
 2. **Extracción y Parseo (`GeminiPlanParser`):**
    * Busca bloques delimitados por:
-     `=== ARCHIVO:\s*([a-zA-Z0-9_\-./]+\.md)\s*===\s*\n?`
+     `=== ARCHIVO:\s*([^\n\r=]+?\.md)\s*===\s*\n?`
+   * **Sanitización de Seguridad (Prevención de *Path Traversal*):**
+     * Para cada coincidencia, se extrae estrictamente el nombre base usando `java.io.File(rawName.trim()).name`.
+     * Se eliminan prefijos de subdirectorios, barras diagonales (`/`, `\`) o secuencias de escape (`../`, `..\`).
+     * Se normaliza a kebab-case seguro `[a-z0-9_-]+\.md`. Cualquier intento de escribir fuera de `planes/` queda neutralizado.
    * Si detecta delimitadores: Trocea el texto en una lista de pares `(fileName, content)`.
    * Si no detecta delimitadores (Modo Manual): Asigna el contenido completo a un único archivo con nombre derivado del título de la idea (`{slug-idea}.md`).
 3. **Resolución de Destino en UI (`ImportPlanBottomSheet`):**
+   * **Detección Especial de `CONTEXT.md`:** Si el texto entrante inicia con `# Contexto` o el archivo compartido se llama `CONTEXT.md`, la UI ofrece como acción prioritaria **"Actualizar CONTEXT.md del Workspace"**, permitiendo transferir fácilmente las reglas del proyecto generadas en PC (con Orca/IDE) hacia GoPlan vía LocalSend/Quick Share.
    * Si la caché de expansión reciente tiene menos de 30 minutos, preselecciona automáticamente el Workspace y la Idea de origen.
    * Muestra la vista previa de los archivos generados con sus nombres normalizados.
    * Permite al usuario confirmar la vinculación con un toque o reasignar a otra idea / crear una nueva idea.
@@ -207,6 +221,9 @@ data class TodoDocument(
 
 ### 5.3. Editor de Contexto (`ContextEditorScreen`)
 * Editor de texto plano para `CONTEXT.md` con botones de guardado y plantilla de inicio rápido para proyectos nuevos.
+* **Importar / Sobrescribir desde PC:**
+  * Botón en la barra superior para *"Importar archivo Markdown"* (mediante selector de archivos o pegado rápido).
+  * Admite recibir archivos compartidos desde el PC vía LocalSend / Quick Share para actualizar el contexto del proyecto de forma directa sin teclear en el móvil.
 
 ---
 
