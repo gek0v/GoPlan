@@ -76,8 +76,8 @@ class WorkspaceRepositoryTest {
         repository.saveTodoDocument(ws, updatedDoc)
 
         // Verify .tmp file does not linger
-        val tmpFile = File(ws.rootDir, "TODO.md.tmp")
-        assertFalse("Temporary .tmp file should not remain after atomic move", tmpFile.exists())
+        val lingeringTmpFiles = ws.rootDir.listFiles { _, name -> name.endsWith(".tmp") } ?: emptyArray()
+        assertTrue("Temporary .tmp file should not remain after atomic move", lingeringTmpFiles.isEmpty())
 
         // Verify content on disk
         val rawTodo = File(ws.rootDir, "TODO.md").readText()
@@ -106,8 +106,8 @@ class WorkspaceRepositoryTest {
         assertEquals("oauth-google.md", savedFile.name)
 
         // Verify no .tmp file left behind in planes directory
-        val tmpFile = File(parent, "oauth-google.md.tmp")
-        assertFalse(tmpFile.exists())
+        val lingeringTmpFiles = parent.listFiles { _, name -> name.endsWith(".tmp") } ?: emptyArray()
+        assertTrue("No temporary .tmp file should linger in planes directory", lingeringTmpFiles.isEmpty())
 
         // Read using "planes/oauth-google.md"
         val readWithSubdir = repository.readPlanFile(ws, "planes/oauth-google.md")
@@ -166,5 +166,29 @@ class WorkspaceRepositoryTest {
     fun testPathTraversalDefenseInReadPlanFile() {
         val ws = repository.createWorkspace("Alpha")
         repository.readPlanFile(ws, "../../evil.md")
+    }
+
+    @Test
+    fun testCreateWorkspaceSanitizesDotsAndAvoidsDirectoryEscaping() {
+        val wsDots = repository.createWorkspace("..")
+        assertEquals("workspace", wsDots.name)
+        assertEquals("workspace", wsDots.id)
+        assertTrue(wsDots.rootDir.canonicalPath.startsWith(tempBaseDir.canonicalPath))
+        assertEquals(tempBaseDir.resolve("workspace").canonicalPath, wsDots.rootDir.canonicalPath)
+
+        val wsSingleDot = repository.createWorkspace(".")
+        assertEquals("workspace", wsSingleDot.name)
+        assertEquals("workspace", wsSingleDot.id)
+    }
+
+    @Test(expected = SecurityException::class)
+    fun testPathTraversalPrefixCollisionDefense() {
+        val ws = repository.createWorkspace("Alpha")
+        val siblingDir = tempBaseDir.resolve("AlphaEvil")
+        siblingDir.mkdirs()
+        val evilPlan = siblingDir.resolve("plan.md")
+        evilPlan.writeText("evil")
+
+        repository.readPlanFile(ws, "../AlphaEvil/plan.md")
     }
 }

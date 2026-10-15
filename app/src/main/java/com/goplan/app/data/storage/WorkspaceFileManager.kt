@@ -87,7 +87,7 @@ class WorkspaceFileManager(val baseDir: File) {
             parentDir.mkdirs()
         }
 
-        val tempFile = File(parentDir, "${targetFile.name}.tmp")
+        val tempFile = File(parentDir, "${targetFile.name}.${System.nanoTime()}.tmp")
         try {
             tempFile.writeText(content, Charsets.UTF_8)
             try {
@@ -152,15 +152,15 @@ class WorkspaceFileManager(val baseDir: File) {
         val rootCanonical = workspace.rootDir.canonicalFile
         val trimmed = relativePath.trimStart('/', '\\')
 
-        val resolved = File(workspace.rootDir, trimmed)
-        if (!resolved.canonicalPath.startsWith(rootCanonical.canonicalPath)) {
+        val resolved = File(workspace.rootDir, trimmed).canonicalFile
+        if (!resolved.toPath().startsWith(rootCanonical.toPath())) {
             throw SecurityException("Path traversal detected: $relativePath")
         }
 
         val targetFile = if (resolved.exists()) {
             resolved
         } else {
-            val inPlanes = File(File(workspace.rootDir, "planes"), File(trimmed).name)
+            val inPlanes = File(File(workspace.rootDir, "planes"), File(trimmed).name).canonicalFile
             if (inPlanes.exists()) {
                 inPlanes
             } else {
@@ -177,7 +177,7 @@ class WorkspaceFileManager(val baseDir: File) {
 
     private fun sanitizeWorkspaceName(name: String): String {
         val trimmed = name.trim()
-        val sanitized = trimmed.replace(Regex("""[/\\:*?"<>|]"""), "_")
+        val sanitized = trimmed.replace(Regex("""[/\\:*?"<>|]"""), "_").trim('.')
         return sanitized.ifEmpty { "workspace" }
     }
 }
