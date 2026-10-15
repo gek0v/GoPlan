@@ -283,4 +283,34 @@ class WorkspaceViewModelTest {
         viewModel.clearTagFilters()
         assertEquals(3, viewModel.uiState.value.ideas.size)
     }
+
+    @Test
+    fun testCreatePlanManually_createsFileAndLinksToIdea() = runTest {
+        val viewModel = createViewModel()
+        viewModel.addIdea("Diseñar base de datos")
+
+        val idea = viewModel.uiState.value.ideas.first { it.title == "Diseñar base de datos" }
+        assertEquals(IdeaStatus.PENDING, idea.status)
+        assertTrue(idea.plans.isEmpty())
+
+        var createdLink: com.goplan.app.domain.model.PlanLink? = null
+        viewModel.createPlanManually(idea) { link ->
+            createdLink = link
+        }
+
+        assertNotNull(createdLink)
+        assertEquals("disenar-base-de-datos", createdLink?.label)
+        assertEquals("planes/disenar-base-de-datos.md", createdLink?.relativePath)
+
+        val updatedIdea = viewModel.uiState.value.ideas.first { it.title == "Diseñar base de datos" }
+        assertEquals(IdeaStatus.IN_PROGRESS, updatedIdea.status)
+        assertEquals(1, updatedIdea.plans.size)
+        assertEquals("planes/disenar-base-de-datos.md", updatedIdea.plans[0].relativePath)
+
+        // Verify the plan file exists and has content
+        val activeWs = viewModel.uiState.value.activeWorkspace!!
+        val content = repository.readPlanFile(activeWs, "planes/disenar-base-de-datos.md")
+        assertTrue(content.contains("# Plan: Diseñar base de datos"))
+    }
 }
+

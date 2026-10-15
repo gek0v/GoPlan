@@ -270,4 +270,57 @@ class PlanViewerViewModelTest {
         assertEquals("planes/seccion-critica-detalle.md", state.plans.last().relativePath)
         assertTrue(File(workspace.rootDir, "planes/seccion-critica-detalle.md").exists())
     }
+
+    @Test
+    fun deleteActivePlan_whenMultiplePlans_deletesFileAndUnlinks() {
+        val todoContent = "- [/] Tarea ([P1](planes/p1.md), [P2](planes/p2.md)) <!-- id:multi-plan -->"
+        fileManager.writeTodoFile(workspace, todoContent)
+        fileManager.savePlanFile(workspace, "p1.md", "# Plan 1")
+        fileManager.savePlanFile(workspace, "p2.md", "# Plan 2")
+
+        val viewModel = createViewModel()
+        viewModel.load(workspace.id, "multi-plan", "planes/p1.md")
+
+        var hasRemainingResult: Boolean? = null
+        viewModel.deleteActivePlan { hasRemaining ->
+            hasRemainingResult = hasRemaining
+        }
+
+        assertTrue(hasRemainingResult == true)
+        assertEquals(1, viewModel.uiState.value.plans.size)
+        assertEquals("P2", viewModel.uiState.value.plans[0].label)
+        assertFalse(File(workspace.rootDir, "planes/p1.md").exists())
+        assertTrue(File(workspace.rootDir, "planes/p2.md").exists())
+
+        // Check TODO.md was updated
+        val doc = repository.getTodoDocument(workspace)
+        val task = doc.lines.filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>().first()
+        assertEquals(1, task.idea.plans.size)
+        assertEquals("P2", task.idea.plans[0].label)
+    }
+
+    @Test
+    fun deleteActivePlan_whenSinglePlan_resetsStatusToPending() {
+        val todoContent = "- [/] Tarea Única ([P1](planes/p1.md)) <!-- id:single-plan -->"
+        fileManager.writeTodoFile(workspace, todoContent)
+        fileManager.savePlanFile(workspace, "p1.md", "# Plan Único")
+
+        val viewModel = createViewModel()
+        viewModel.load(workspace.id, "single-plan", "planes/p1.md")
+
+        var hasRemainingResult: Boolean? = null
+        viewModel.deleteActivePlan { hasRemaining ->
+            hasRemainingResult = hasRemaining
+        }
+
+        assertFalse(hasRemainingResult == true)
+        assertTrue(viewModel.uiState.value.plans.isEmpty())
+        assertFalse(File(workspace.rootDir, "planes/p1.md").exists())
+
+        val doc = repository.getTodoDocument(workspace)
+        val task = doc.lines.filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>().first()
+        assertEquals(0, task.idea.plans.size)
+        assertEquals(com.goplan.app.domain.model.IdeaStatus.PENDING, task.idea.status)
+    }
 }
+

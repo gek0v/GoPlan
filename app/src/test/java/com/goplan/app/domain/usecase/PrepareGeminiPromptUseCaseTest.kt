@@ -60,4 +60,36 @@ class PrepareGeminiPromptUseCaseTest {
         assertTrue(prompt.contains("- Idea sin etiquetas"))
         assertTrue(prompt.contains("Etiquetas: \n") || prompt.contains("Etiquetas:\n") || prompt.contains("Etiquetas: \r\n"))
     }
+
+    @Test
+    fun testPrepareBatchPrompt_formatsMultipleIdeasAndContext() {
+        val ideas = listOf(
+            Idea(
+                id = "1",
+                status = IdeaStatus.PENDING,
+                title = "Idea Uno",
+                tags = linkedSetOf("tag1", "tag2"),
+                plans = emptyList(),
+                rawLine = "- [ ] Idea Uno #tag1 #tag2"
+            ),
+            Idea(
+                id = "2",
+                status = IdeaStatus.PENDING,
+                title = "Idea Dos",
+                tags = emptySet(),
+                plans = emptyList(),
+                rawLine = "- [ ] Idea Dos"
+            )
+        )
+
+        val batchPrompt = useCase.prepareBatchPrompt("Contexto general", ideas)
+
+        assertTrue(batchPrompt.contains("# CONTEXTO DEL PROYECTO"))
+        assertTrue(batchPrompt.contains("Contexto general"))
+        assertTrue(batchPrompt.contains("# IDEAS A DESARROLLAR"))
+        assertTrue(batchPrompt.contains("- Idea Uno #tag1 #tag2"))
+        assertTrue(batchPrompt.contains("- Idea Dos"))
+        assertTrue(batchPrompt.contains("=== ARCHIVO: nombre-archivo-en-kebab-case.md ==="))
+    }
 }
+

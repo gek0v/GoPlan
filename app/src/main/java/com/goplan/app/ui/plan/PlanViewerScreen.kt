@@ -8,20 +8,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.CallSplit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +66,13 @@ fun PlanViewerScreen(
         onSelectPlan = { viewModel.selectPlan(it) },
         onUpdateContent = { viewModel.updateContent(it) },
         onSplitPlan = { cursor, name -> viewModel.splitPlanFromCursor(cursor, name) },
+        onDeletePlan = {
+            viewModel.deleteActivePlan { hasRemaining ->
+                if (!hasRemaining) {
+                    onNavigateBack()
+                }
+            }
+        },
         modifier = modifier
     )
 }
@@ -76,9 +87,11 @@ fun PlanViewerScreenContent(
     onSelectPlan: (Int) -> Unit,
     onUpdateContent: (String) -> Unit,
     onSplitPlan: (cursorIndex: Int, newFileName: String) -> Unit,
+    onDeletePlan: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showSplitDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     var currentCursorPosition by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -139,6 +152,16 @@ fun PlanViewerScreenContent(
                             imageVector = Icons.Default.Done,
                             contentDescription = "Guardar plan"
                         )
+                    }
+
+                    if (uiState.activePlan != null) {
+                        IconButton(onClick = { showDeleteDialog = true }, enabled = !uiState.isSaving) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Eliminar plan",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             )
@@ -203,6 +226,30 @@ fun PlanViewerScreenContent(
                 onSplitPlan(currentCursorPosition, fileName)
             },
             onDismiss = { showSplitDialog = false }
+        )
+    }
+
+    if (showDeleteDialog) {
+        val planLabel = uiState.activePlan?.label ?: "este plan"
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Eliminar plan") },
+            text = { Text("¿Deseas eliminar '$planLabel'? Se borrará el archivo de disco y se desvinculará de la tarea.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeletePlan()
+                    }
+                ) {
+                    Text("Eliminar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
         )
     }
 }

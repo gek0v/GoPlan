@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.domain.model.Idea
+import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 data class PlanViewerUiState(
@@ -244,6 +246,82 @@ class PlanViewerViewModel(
                     it.copy(
                         isSaving = false,
                         errorMessage = "Error al dividir el plan: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun deleteActivePlan(onDeleted: (hasRemainingPlans: Boolean) -> Unit) {
+        val currentState = _uiState.value
+        val workspace = currentState.workspace ?: return
+        val idea = currentState.idea ?: return
+        val currentPlan = currentState.activePlan ?: return
+
+        viewModelScope.launch(ioDispatcher) {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
+            try {
+                // Delete plan file from disk
+                val planFile = File(workspace.rootDir, currentPlan.relativePath)
+                if (planFile.exists()) {
+                    planFile.delete()
+                }
+
+                val remainingPlans = currentState.plans.filter { it.relativePath != currentPlan.relativePath }
+                val todoDoc = workspaceRepository.getTodoDocument(workspace)
+                var updatedDoc = parser.linkPlansToIdea(todoDoc, idea.id, remainingPlans)
+
+                if (remainingPlans.isEmpty() && idea.status == IdeaStatus.IN_PROGRESS) {
+                    updatedDoc = parser.updateIdeaStatus(updatedDoc, idea.id, IdeaStatus.PENDING)
+                }
+
+                workspaceRepository.saveTodoDocument(workspace, updatedDoc)
+
+                val updatedIdea = updatedDoc.lines
+                    .filterIsInstance<TodoLine.Task>()
+                    .find { it.idea.id == idea.id }
+                    ?.idea ?: idea.copy(plans = remainingPlans)
+
+                if (remainingPlans.isNotEmpty()) {
+                    val nextIndex = 0.coerceAtMost(remainingPlans.size - 1)
+                    val nextPlan = remainingPlans[nextIndex]
+                    val nextContent = try {
+                        workspaceRepository.readPlanFile(workspace, nextPlan.relativePath)
+                    } catch (_: Exception) {
+                        "# Plan"
+                    }
+
+                    _uiState.update {
+                        it.copy(
+                            idea = updatedIdea,
+                            plans = remainingPlans,
+                            activePlanIndex = nextIndex,
+                            planContent = nextContent,
+                            isSaving = false,
+                            errorMessage = null
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            idea = updatedIdea,
+                            plans = emptyList(),
+                            activePlanIndex = 0,
+                            planContent = "",
+                            isSaving = false,
+                            errorMessage = null
+                        )
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    onDeleted(remainingPlans.isNotEmpty())
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSaving = false,
+                        errorMessage = "Error al eliminar plan: ${e.message}"
                     )
                 }
             }

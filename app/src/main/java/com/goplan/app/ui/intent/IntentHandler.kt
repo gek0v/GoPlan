@@ -1,11 +1,13 @@
 package com.goplan.app.ui.intent
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
 
@@ -14,38 +16,58 @@ object IntentHandler {
     const val GEMINI_PACKAGE_NAME = "com.google.android.apps.bard"
 
     /**
-     * Sends the prepared prompt to Gemini (Google Bard) directly if installed,
-     * or opens the system chooser as fallback.
+     * Copies the prepared prompt to the clipboard, notifies the user, and opens Gemini.
      */
     fun sharePromptToGemini(context: Context, prompt: String) {
-        val geminiIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, prompt)
-            setPackage(GEMINI_PACKAGE_NAME)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val clip = ClipData.newPlainText("GoPlan Prompt", prompt)
+        clipboard?.setPrimaryClip(clip)
+
+        Toast.makeText(
+            context,
+            "Prompt copiado al portapapeles. Pégalo en Gemini",
+            Toast.LENGTH_LONG
+        ).show()
+
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(GEMINI_PACKAGE_NAME)
+        if (launchIntent != null) {
+            if (context !is Activity) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try {
+                context.startActivity(launchIntent)
+                return
+            } catch (_: Exception) {
+                // fallback
+            }
+        }
+
+        // Fallback: Open Gemini Web in browser
+        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://gemini.google.com")).apply {
             if (context !is Activity) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         }
-
-        val hasDirectGemini = geminiIntent.resolveActivity(context.packageManager) != null
-        if (hasDirectGemini) {
-            try {
-                context.startActivity(geminiIntent)
-                return
-            } catch (_: Exception) {
-                // Fall back to chooser
+        try {
+            context.startActivity(webIntent)
+        } catch (_: Exception) {
+            val chooser = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, prompt)
+            }, "Expandir con Gemini")
+            if (context !is Activity) {
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            context.startActivity(chooser)
         }
+    }
 
-        val chooserIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, prompt)
-        }
-        val chooser = Intent.createChooser(chooserIntent, "Expandir con Gemini")
-        if (context !is Activity) {
-            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(chooser)
+    /**
+     * Checks if the received text is a web share link from Gemini (share.gemini.google.com)
+     * rather than actual markdown content.
+     */
+    fun isGeminiShareLink(text: String): Boolean {
+        return text.contains("share.gemini.google.com", ignoreCase = true)
     }
 
     /**

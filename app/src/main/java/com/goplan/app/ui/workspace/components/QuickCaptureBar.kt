@@ -109,7 +109,7 @@ fun QuickCaptureBar(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(bottom = 6.dp)
+                .padding(bottom = 12.dp)
         ) {
             // Autocomplete chip row
             AnimatedVisibility(

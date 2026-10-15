@@ -7,8 +7,10 @@ import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
+import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.domain.parser.GeminiPlanParser
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class WorkspaceUiState(
     val isLoading: Boolean = false,
@@ -215,6 +218,38 @@ class WorkspaceViewModel(
                 loadWorkspaceData(activeWs)
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al refrescar") }
+            }
+        }
+    }
+
+    fun createPlanManually(idea: Idea, onCreated: (PlanLink) -> Unit) {
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                val geminiParser = GeminiPlanParser()
+                val safeFileName = geminiParser.sanitizeFileName(idea.title)
+                val initialContent = "# Plan: ${idea.title}\n\n## Descripción\n\n## Pasos de Implementación\n- [ ] "
+
+                workspaceRepository.savePlanFile(activeWs, safeFileName, initialContent)
+
+                val doc = workspaceRepository.getTodoDocument(activeWs)
+                val planLink = PlanLink(label = safeFileName.removeSuffix(".md"), relativePath = "planes/$safeFileName")
+                val updatedPlans = idea.plans + planLink
+                val updatedDoc = parser.linkPlansToIdea(doc, idea.id, updatedPlans)
+                val finalDoc = if (idea.status == IdeaStatus.PENDING) {
+                    parser.updateIdeaStatus(updatedDoc, idea.id, IdeaStatus.IN_PROGRESS)
+                } else {
+                    updatedDoc
+                }
+                workspaceRepository.saveTodoDocument(activeWs, finalDoc)
+
+                loadWorkspaceData(activeWs)
+
+                withContext(Dispatchers.Main) {
+                    onCreated(planLink)
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al crear plan") }
             }
         }
     }

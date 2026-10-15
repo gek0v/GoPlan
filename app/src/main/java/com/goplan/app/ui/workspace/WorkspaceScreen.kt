@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -31,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +58,8 @@ fun WorkspaceScreen(
     onNavigateToContext: (workspaceId: String) -> Unit,
     onNavigateToPlan: (workspaceId: String, ideaId: String, planPath: String) -> Unit,
     onExpandWithGemini: (idea: Idea) -> Unit,
+    onPastePlan: () -> Unit,
+    onCreatePlan: (Idea) -> Unit,
     onExport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -73,6 +78,8 @@ fun WorkspaceScreen(
         onNavigateToContext = onNavigateToContext,
         onNavigateToPlan = onNavigateToPlan,
         onExpandWithGemini = onExpandWithGemini,
+        onPastePlan = onPastePlan,
+        onCreatePlan = onCreatePlan,
         onExport = onExport,
         modifier = modifier
     )
@@ -93,6 +100,8 @@ fun WorkspaceScreenContent(
     onNavigateToContext: (workspaceId: String) -> Unit,
     onNavigateToPlan: (workspaceId: String, ideaId: String, planPath: String) -> Unit,
     onExpandWithGemini: (idea: Idea) -> Unit,
+    onPastePlan: () -> Unit,
+    onCreatePlan: (Idea) -> Unit,
     onExport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -201,6 +210,14 @@ fun WorkspaceScreenContent(
                     }
                 },
                 actions = {
+                    // Paste plan from clipboard action
+                    IconButton(onClick = onPastePlan) {
+                        Icon(
+                            imageVector = Icons.Default.ContentPaste,
+                            contentDescription = "Pegar plan"
+                        )
+                    }
+
                     // CONTEXT.md action
                     IconButton(
                         onClick = {
@@ -273,7 +290,16 @@ fun WorkspaceScreenContent(
                     )
                 }
             } else {
+                val listState = rememberLazyListState()
+
+                LaunchedEffect(uiState.ideas.size) {
+                    if (uiState.ideas.isNotEmpty()) {
+                        listState.animateScrollToItem(uiState.ideas.size - 1)
+                    }
+                }
+
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f),
@@ -292,7 +318,8 @@ fun WorkspaceScreenContent(
                                     onNavigateToPlan(ws.id, clickedIdea.id, plan.relativePath)
                                 }
                             },
-                            onExpandWithGemini = onExpandWithGemini
+                            onExpandWithGemini = onExpandWithGemini,
+                            onCreatePlan = onCreatePlan
                         )
                     }
                 }
