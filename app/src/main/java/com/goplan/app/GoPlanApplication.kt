@@ -1,9 +1,14 @@
 package com.goplan.app
 
 import android.app.Application
+import android.content.Context
+import androidx.datastore.preferences.preferencesDataStore
+import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
 import com.goplan.app.domain.parser.TodoMarkdownParser
+
+private val Context.dataStore by preferencesDataStore(name = "goplan_preferences")
 
 class GoPlanApplication : Application() {
 
@@ -18,6 +23,10 @@ class GoPlanApplication : Application() {
 
     val workspaceRepository: WorkspaceRepository by lazy {
         WorkspaceRepository(workspaceFileManager, todoMarkdownParser)
+    }
+
+    val preferencesManager: PreferencesManager by lazy {
+        PreferencesManager(dataStore)
     }
 
     override fun onCreate() {
