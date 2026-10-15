@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+@Suppress("DEPRECATION")
 class GoogleDriveAuthManager(
     private val context: Context? = null,
     private val clientProvider: ((Context) -> GoogleSignInClient)? = null,
@@ -109,12 +110,8 @@ class GoogleDriveAuthManager(
                 .requestEmail()
                 .requestScopes(Scope(DriveScopes.DRIVE))
                 .build()
-            if (clientProvider != null) {
-                clientProvider.invoke(ctx) != null
-            } else {
-                GoogleSignIn.getClient(ctx, gso)
-                true
-            }
+            clientProvider?.invoke(ctx) ?: GoogleSignIn.getClient(ctx, gso)
+            true
         } catch (_: Throwable) {
             false
         }

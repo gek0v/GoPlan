@@ -87,7 +87,7 @@ class WorkspaceViewModel(
 
     init {
         loadInitialData()
-        viewModelScope.launch {
+        viewModelScope.launch(ioDispatcher) {
             workspaceRepository.workspaceChangesFlow.collect { changedWorkspaceId ->
                 val currentActive = _uiState.value.activeWorkspace
                 if (currentActive != null && currentActive.id == changedWorkspaceId) {
