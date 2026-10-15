@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,6 +43,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +52,7 @@ import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.ui.server.ServerConnectionDialog
 import com.goplan.app.ui.workspace.components.EditIdeaDialog
 import com.goplan.app.ui.workspace.components.FilterChipsRow
 import com.goplan.app.ui.workspace.components.IdeaItemRow
@@ -65,9 +70,22 @@ fun WorkspaceScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isServerRunning by viewModel.isServerRunning.collectAsState()
+    val serverUrl by viewModel.serverUrl.collectAsState()
+
+    val view = LocalView.current
+    DisposableEffect(isServerRunning) {
+        view.keepScreenOn = isServerRunning
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     WorkspaceScreenContent(
         uiState = uiState,
+        isServerRunning = isServerRunning,
+        serverUrl = serverUrl,
+        onToggleServer = { viewModel.toggleServer(it) },
         onSwitchWorkspace = { viewModel.switchWorkspace(it) },
         onCreateWorkspace = { viewModel.createWorkspace(it) },
         onAddIdea = { viewModel.addIdea(it) },
@@ -92,6 +110,9 @@ fun WorkspaceScreen(
 @Composable
 fun WorkspaceScreenContent(
     uiState: WorkspaceUiState,
+    isServerRunning: Boolean = false,
+    serverUrl: String? = null,
+    onToggleServer: (Boolean) -> Unit = {},
     onSwitchWorkspace: (Workspace) -> Unit,
     onCreateWorkspace: (String) -> Unit,
     onAddIdea: (String) -> Unit,
@@ -112,6 +133,7 @@ fun WorkspaceScreenContent(
 ) {
     var workspaceDropdownExpanded by remember { mutableStateOf(false) }
     var showCreateWorkspaceDialog by remember { mutableStateOf(false) }
+    var showServerDialog by remember { mutableStateOf(false) }
     var newWorkspaceName by remember { mutableStateOf("") }
     var ideaToEdit by remember { mutableStateOf<Idea?>(null) }
     var ideaToDelete by remember { mutableStateOf<Idea?>(null) }
@@ -217,6 +239,15 @@ fun WorkspaceScreenContent(
                     }
                 },
                 actions = {
+                    // Server connection action
+                    IconButton(onClick = { showServerDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Lan,
+                            contentDescription = "Conexión PC / Servidor Local",
+                            tint = if (isServerRunning) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Paste plan from clipboard action
                     IconButton(onClick = onPastePlan) {
                         Icon(
@@ -377,6 +408,15 @@ fun WorkspaceScreenContent(
                     Text("Cancelar")
                 }
             }
+        )
+    }
+
+    if (showServerDialog) {
+        ServerConnectionDialog(
+            isRunning = isServerRunning,
+            serverUrl = serverUrl,
+            onToggleServer = onToggleServer,
+            onDismiss = { showServerDialog = false }
         )
     }
 }

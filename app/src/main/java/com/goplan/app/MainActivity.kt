@@ -60,10 +60,14 @@ class MainActivity : ComponentActivity() {
     private var incomingSharedText by mutableStateOf<String?>(null)
     private var recentExpansion by mutableStateOf<RecentExpansion?>(null)
     private var showGeminiLinkDialog by mutableStateOf(false)
+    private var wasServerRunning: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState != null) {
+            wasServerRunning = savedInstanceState.getBoolean("was_server_running", false)
+        }
         if (savedInstanceState == null) {
             handleIncomingIntent(intent)
         }
@@ -73,6 +77,35 @@ class MainActivity : ComponentActivity() {
                 MainContent()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (wasServerRunning) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                app.ktorServerManager.start()
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        wasServerRunning = app.ktorServerManager.isRunning.value
+        if (wasServerRunning) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                app.ktorServerManager.stop()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        app.ktorServerManager.stop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("was_server_running", wasServerRunning || app.ktorServerManager.isRunning.value)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -107,7 +140,8 @@ class MainActivity : ComponentActivity() {
             factory = WorkspaceViewModel.provideFactory(
                 repository = app.workspaceRepository,
                 preferencesManager = app.preferencesManager,
-                parser = app.todoMarkdownParser
+                parser = app.todoMarkdownParser,
+                ktorServerManager = app.ktorServerManager
             )
         )
         val workspaceUiState by workspaceViewModel.uiState.collectAsState()

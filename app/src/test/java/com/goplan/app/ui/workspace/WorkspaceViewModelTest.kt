@@ -8,6 +8,7 @@ import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.parser.TodoMarkdownParser
+import com.goplan.app.server.KtorServerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -21,6 +22,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -372,6 +374,56 @@ class WorkspaceViewModelTest {
         assertEquals(1, state.ideas.size)
         assertEquals("Idea externa recibida", state.ideas[0].title)
         assertTrue(state.availableTags.contains("reactivo"))
+    }
+
+    @Test
+    fun testServerState_whenManagerIsNull_defaultsToFalseAndNull() = runTest {
+        val viewModel = createViewModel()
+        assertFalse(viewModel.isServerRunning.value)
+        assertNull(viewModel.serverUrl.value)
+
+        viewModel.toggleServer(true)
+        assertFalse(viewModel.isServerRunning.value)
+        assertNull(viewModel.serverUrl.value)
+
+        viewModel.toggleServer(false)
+        assertFalse(viewModel.isServerRunning.value)
+        assertNull(viewModel.serverUrl.value)
+    }
+
+    @Test
+    fun testServerState_withKtorServerManager_togglesCorrectly() = runTest {
+        val serverManager = KtorServerManager(
+            repository = repository,
+            preferencesManager = preferencesManager,
+            ipProvider = { "127.0.0.1" }
+        )
+
+        try {
+            val viewModel = WorkspaceViewModel(
+                workspaceRepository = repository,
+                preferencesManager = preferencesManager,
+                parser = parser,
+                ktorServerManager = serverManager,
+                ioDispatcher = testDispatcher
+            )
+
+            assertFalse(viewModel.isServerRunning.value)
+            assertNull(viewModel.serverUrl.value)
+
+            // Toggle server ON
+            viewModel.toggleServer(true)
+            assertTrue("Server should be running after toggleServer(true)", viewModel.isServerRunning.value)
+            assertNotNull(viewModel.serverUrl.value)
+            assertTrue(viewModel.serverUrl.value!!.startsWith("http://127.0.0.1:"))
+
+            // Toggle server OFF
+            viewModel.toggleServer(false)
+            assertFalse("Server should not be running after toggleServer(false)", viewModel.isServerRunning.value)
+            assertNull(viewModel.serverUrl.value)
+        } finally {
+            serverManager.stop()
+        }
     }
 }
 

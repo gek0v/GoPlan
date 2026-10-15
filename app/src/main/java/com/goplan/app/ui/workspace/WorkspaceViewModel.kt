@@ -12,6 +12,7 @@ import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
 import com.goplan.app.domain.parser.GeminiPlanParser
 import com.goplan.app.domain.parser.TodoMarkdownParser
+import com.goplan.app.server.KtorServerManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,11 +43,25 @@ class WorkspaceViewModel(
     private val workspaceRepository: WorkspaceRepository,
     private val preferencesManager: PreferencesManager,
     private val parser: TodoMarkdownParser = TodoMarkdownParser(),
+    private val ktorServerManager: KtorServerManager? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WorkspaceUiState(isLoading = true))
     val uiState: StateFlow<WorkspaceUiState> = _uiState.asStateFlow()
+
+    val isServerRunning: StateFlow<Boolean> = ktorServerManager?.isRunning ?: MutableStateFlow(false)
+    val serverUrl: StateFlow<String?> = ktorServerManager?.serverUrl ?: MutableStateFlow(null)
+
+    fun toggleServer(enable: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            if (enable) {
+                ktorServerManager?.start()
+            } else {
+                ktorServerManager?.stop()
+            }
+        }
+    }
 
     private val tagRegex = Regex("""(?<=^|\s)#([a-zA-Z0-9_-]+)""")
 
@@ -353,11 +368,18 @@ class WorkspaceViewModel(
             repository: WorkspaceRepository,
             preferencesManager: PreferencesManager,
             parser: TodoMarkdownParser = TodoMarkdownParser(),
+            ktorServerManager: KtorServerManager? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return WorkspaceViewModel(repository, preferencesManager, parser, ioDispatcher) as T
+                return WorkspaceViewModel(
+                    workspaceRepository = repository,
+                    preferencesManager = preferencesManager,
+                    parser = parser,
+                    ktorServerManager = ktorServerManager,
+                    ioDispatcher = ioDispatcher
+                ) as T
             }
         }
     }
