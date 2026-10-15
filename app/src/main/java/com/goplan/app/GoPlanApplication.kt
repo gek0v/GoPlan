@@ -6,6 +6,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.data.sync.GoogleDriveAuthManager
 import com.goplan.app.domain.export.AgentExportManager
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
@@ -37,6 +38,10 @@ class GoPlanApplication : Application() {
 
     val ktorServerManager: KtorServerManager by lazy {
         KtorServerManager(workspaceRepository, preferencesManager, agentExportManager)
+    }
+
+    val googleDriveAuthManager: GoogleDriveAuthManager by lazy {
+        GoogleDriveAuthManager(this)
     }
 
     override fun onCreate() {
