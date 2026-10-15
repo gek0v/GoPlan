@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (wasServerRunning) {
+            wasServerRunning = false
             lifecycleScope.launch(Dispatchers.IO) {
                 app.ktorServerManager.start()
             }
