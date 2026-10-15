@@ -6,6 +6,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.domain.export.AgentExportManager
 import com.goplan.app.domain.parser.TodoMarkdownParser
 
 private val Context.dataStore by preferencesDataStore(name = "goplan_preferences")
@@ -27,6 +28,10 @@ class GoPlanApplication : Application() {
 
     val preferencesManager: PreferencesManager by lazy {
         PreferencesManager(dataStore)
+    }
+
+    val agentExportManager: AgentExportManager by lazy {
+        AgentExportManager(workspaceRepository)
     }
 
     override fun onCreate() {
