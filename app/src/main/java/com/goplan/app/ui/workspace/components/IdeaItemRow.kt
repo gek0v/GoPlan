@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,15 +69,19 @@ fun IdeaItemRow(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
+    val currentIdea by rememberUpdatedState(idea)
+    val currentOnCycleStatus by rememberUpdatedState(onCycleStatus)
+    val currentOnDiscard by rememberUpdatedState(onDiscard)
+
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
             when (dismissValue) {
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    onCycleStatus(idea)
+                    currentOnCycleStatus(currentIdea)
                     false // Return false so the item animates back smoothly
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
-                    onDiscard(idea)
+                    currentOnDiscard(currentIdea)
                     false // Return false so the item animates back smoothly
                 }
                 SwipeToDismissBoxValue.Settled -> false
@@ -248,27 +253,31 @@ fun IdeaItemRow(
                             }
                         )
 
-                        DropdownMenuItem(
-                            text = { Text("Crear plan") },
-                            onClick = {
-                                menuExpanded = false
-                                onCreatePlan?.invoke(idea)
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Add, contentDescription = null)
-                            }
-                        )
+                        if (onCreatePlan != null) {
+                            DropdownMenuItem(
+                                text = { Text("Crear plan") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onCreatePlan(idea)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Add, contentDescription = null)
+                                }
+                            )
+                        }
 
-                        DropdownMenuItem(
-                            text = { Text("Editar") },
-                            onClick = {
-                                menuExpanded = false
-                                onEdit?.invoke(idea)
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Edit, contentDescription = null)
-                            }
-                        )
+                        if (onEdit != null) {
+                            DropdownMenuItem(
+                                text = { Text("Editar") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onEdit(idea)
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Edit, contentDescription = null)
+                                }
+                            )
+                        }
 
                         DropdownMenuItem(
                             text = { Text("Descartar") },

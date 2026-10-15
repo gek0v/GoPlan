@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -279,10 +279,10 @@ fun WorkspaceScreenContent(
                         .weight(1f),
                     contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
-                    items(
+                    itemsIndexed(
                         items = uiState.ideas,
-                        key = { it.id }
-                    ) { idea ->
+                        key = { index, idea -> "${idea.id}_$index" }
+                    ) { _, idea ->
                         IdeaItemRow(
                             idea = idea,
                             onCycleStatus = onCycleStatus,

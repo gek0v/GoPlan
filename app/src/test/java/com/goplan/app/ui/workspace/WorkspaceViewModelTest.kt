@@ -129,6 +129,10 @@ class WorkspaceViewModelTest {
         assertEquals("Workspace 1", viewModel.uiState.value.activeWorkspace?.name)
         assertTrue(viewModel.uiState.value.ideas.isEmpty())
 
+        // Set a tag filter in Workspace 1
+        viewModel.toggleTagFilter("someTag")
+        assertEquals(setOf("someTag"), viewModel.uiState.value.selectedTags)
+
         // Switch to Workspace 2
         viewModel.switchWorkspace(ws2)
         val state = viewModel.uiState.value
@@ -137,6 +141,7 @@ class WorkspaceViewModelTest {
         assertEquals(1, state.ideas.size)
         assertEquals("Idea en ws2", state.ideas[0].title)
         assertTrue(state.availableTags.contains("ws2tag"))
+        assertTrue("Switching workspace must reset selectedTags", state.selectedTags.isEmpty())
     }
 
     @Test
@@ -184,6 +189,24 @@ class WorkspaceViewModelTest {
         viewModel.cycleStatus(completedIdea)
         val backToPendingIdea = viewModel.uiState.value.ideas[0]
         assertEquals(IdeaStatus.PENDING, backToPendingIdea.status)
+    }
+
+    @Test
+    fun testCycleStatus_withStaleIdeaSnapshot_usesCurrentDocumentStatus() = runTest {
+        val viewModel = createViewModel()
+        viewModel.addIdea("Tarea con snapshot desactualizado")
+
+        val staleInitialIdea = viewModel.uiState.value.ideas[0]
+        assertEquals(IdeaStatus.PENDING, staleInitialIdea.status)
+
+        // 1st cycle: PENDING -> IN_PROGRESS
+        viewModel.cycleStatus(staleInitialIdea)
+        assertEquals(IdeaStatus.IN_PROGRESS, viewModel.uiState.value.ideas[0].status)
+
+        // 2nd cycle: pass the same STALE initialIdea snapshot (whose status is still PENDING)
+        // ViewModel must look up from TODO.md and advance from IN_PROGRESS -> COMPLETED
+        viewModel.cycleStatus(staleInitialIdea)
+        assertEquals(IdeaStatus.COMPLETED, viewModel.uiState.value.ideas[0].status)
     }
 
     @Test

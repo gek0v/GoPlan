@@ -52,34 +52,43 @@ class WorkspaceViewModel(
 
     private fun loadInitialData() {
         viewModelScope.launch(ioDispatcher) {
-            _uiState.update { it.copy(isLoading = true) }
-            var workspaces = workspaceRepository.getWorkspaces()
-            val savedActiveId = preferencesManager.getActiveWorkspace().first()
+            try {
+                _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+                var workspaces = workspaceRepository.getWorkspaces()
+                val savedActiveId = preferencesManager.getActiveWorkspace().first()
 
-            val targetWorkspace = when {
-                savedActiveId != null && workspaces.any { it.id == savedActiveId } -> {
-                    workspaces.first { it.id == savedActiveId }
+                val targetWorkspace = when {
+                    savedActiveId != null && workspaces.any { it.id == savedActiveId } -> {
+                        workspaces.first { it.id == savedActiveId }
+                    }
+                    workspaces.isNotEmpty() -> {
+                        workspaces.first()
+                    }
+                    else -> {
+                        val created = workspaceRepository.createWorkspace("Default")
+                        workspaces = workspaceRepository.getWorkspaces()
+                        created
+                    }
                 }
-                workspaces.isNotEmpty() -> {
-                    workspaces.first()
-                }
-                else -> {
-                    val created = workspaceRepository.createWorkspace("Default")
-                    workspaces = workspaceRepository.getWorkspaces()
-                    created
-                }
+
+                preferencesManager.saveActiveWorkspace(targetWorkspace.id)
+                _uiState.update { it.copy(workspaces = workspaces) }
+                loadWorkspaceData(targetWorkspace)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, errorMessage = e.message ?: "Error al cargar workspace") }
             }
-
-            preferencesManager.saveActiveWorkspace(targetWorkspace.id)
-            _uiState.update { it.copy(workspaces = workspaces) }
-            loadWorkspaceData(targetWorkspace)
         }
     }
 
     fun switchWorkspace(workspace: Workspace) {
         viewModelScope.launch(ioDispatcher) {
-            preferencesManager.saveActiveWorkspace(workspace.id)
-            loadWorkspaceData(workspace)
+            try {
+                preferencesManager.saveActiveWorkspace(workspace.id)
+                _uiState.update { it.copy(selectedTags = emptySet(), errorMessage = null) }
+                loadWorkspaceData(workspace)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al cambiar de workspace") }
+            }
         }
     }
 
@@ -87,52 +96,73 @@ class WorkspaceViewModel(
         val cleanName = name.trim()
         if (cleanName.isBlank()) return
         viewModelScope.launch(ioDispatcher) {
-            val created = workspaceRepository.createWorkspace(cleanName)
-            val allWorkspaces = workspaceRepository.getWorkspaces()
-            preferencesManager.saveActiveWorkspace(created.id)
-            _uiState.update { it.copy(workspaces = allWorkspaces) }
-            loadWorkspaceData(created)
+            try {
+                val created = workspaceRepository.createWorkspace(cleanName)
+                val allWorkspaces = workspaceRepository.getWorkspaces()
+                preferencesManager.saveActiveWorkspace(created.id)
+                _uiState.update { it.copy(workspaces = allWorkspaces, selectedTags = emptySet(), errorMessage = null) }
+                loadWorkspaceData(created)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al crear workspace") }
+            }
         }
     }
 
     fun addIdea(text: String) {
         if (text.isBlank()) return
         viewModelScope.launch(ioDispatcher) {
-            val activeWs = _uiState.value.activeWorkspace ?: return@launch
-            val tags = tagRegex.findAll(text).map { it.groupValues[1] }.toSet()
-            val cleanTitle = text.replace(Regex("""(?<=^|\s)#[a-zA-Z0-9_-]+"""), "").trim().replace(Regex("""\s+"""), " ")
-            val titleToUse = if (cleanTitle.isNotBlank()) cleanTitle else text.trim()
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                val tags = tagRegex.findAll(text).map { it.groupValues[1] }.toSet()
+                val cleanTitle = text.replace(Regex("""(?<=^|\s)#[a-zA-Z0-9_-]+"""), "").trim().replace(Regex("""\s+"""), " ")
+                val titleToUse = if (cleanTitle.isNotBlank()) cleanTitle else text.trim()
 
-            val doc = workspaceRepository.getTodoDocument(activeWs)
-            val updatedDoc = parser.addIdea(doc, titleToUse, tags)
-            workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
-            loadWorkspaceData(activeWs)
+                val doc = workspaceRepository.getTodoDocument(activeWs)
+                val updatedDoc = parser.addIdea(doc, titleToUse, tags)
+                workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
+                loadWorkspaceData(activeWs)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al agregar idea") }
+            }
         }
     }
 
     fun cycleStatus(idea: Idea) {
         viewModelScope.launch(ioDispatcher) {
-            val activeWs = _uiState.value.activeWorkspace ?: return@launch
-            val nextStatus = when (idea.status) {
-                IdeaStatus.PENDING -> IdeaStatus.IN_PROGRESS
-                IdeaStatus.IN_PROGRESS -> IdeaStatus.COMPLETED
-                IdeaStatus.COMPLETED -> IdeaStatus.PENDING
-                IdeaStatus.DISCARDED -> IdeaStatus.PENDING
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                val doc = workspaceRepository.getTodoDocument(activeWs)
+                val currentStatus = doc.lines
+                    .filterIsInstance<TodoLine.Task>()
+                    .find { it.idea.id == idea.id }
+                    ?.idea?.status ?: idea.status
+
+                val nextStatus = when (currentStatus) {
+                    IdeaStatus.PENDING -> IdeaStatus.IN_PROGRESS
+                    IdeaStatus.IN_PROGRESS -> IdeaStatus.COMPLETED
+                    IdeaStatus.COMPLETED -> IdeaStatus.PENDING
+                    IdeaStatus.DISCARDED -> IdeaStatus.PENDING
+                }
+                val updatedDoc = parser.updateIdeaStatus(doc, idea.id, nextStatus)
+                workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
+                loadWorkspaceData(activeWs)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al actualizar estado") }
             }
-            val doc = workspaceRepository.getTodoDocument(activeWs)
-            val updatedDoc = parser.updateIdeaStatus(doc, idea.id, nextStatus)
-            workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
-            loadWorkspaceData(activeWs)
         }
     }
 
     fun discardIdea(idea: Idea) {
         viewModelScope.launch(ioDispatcher) {
-            val activeWs = _uiState.value.activeWorkspace ?: return@launch
-            val doc = workspaceRepository.getTodoDocument(activeWs)
-            val updatedDoc = parser.updateIdeaStatus(doc, idea.id, IdeaStatus.DISCARDED)
-            workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
-            loadWorkspaceData(activeWs)
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                val doc = workspaceRepository.getTodoDocument(activeWs)
+                val updatedDoc = parser.updateIdeaStatus(doc, idea.id, IdeaStatus.DISCARDED)
+                workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
+                loadWorkspaceData(activeWs)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al descartar idea") }
+            }
         }
     }
 
@@ -178,10 +208,14 @@ class WorkspaceViewModel(
 
     fun refresh() {
         viewModelScope.launch(ioDispatcher) {
-            val activeWs = _uiState.value.activeWorkspace ?: return@launch
-            val allWorkspaces = workspaceRepository.getWorkspaces()
-            _uiState.update { it.copy(workspaces = allWorkspaces) }
-            loadWorkspaceData(activeWs)
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                val allWorkspaces = workspaceRepository.getWorkspaces()
+                _uiState.update { it.copy(workspaces = allWorkspaces, errorMessage = null) }
+                loadWorkspaceData(activeWs)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al refrescar") }
+            }
         }
     }
 
