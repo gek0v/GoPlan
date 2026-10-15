@@ -38,9 +38,10 @@
 - Create: `app/src/main/res/values/strings.xml`
 - Create: `app/src/main/res/values/themes.xml`
 - Create: `app/src/main/java/com/goplan/app/MainActivity.kt`
+- Create: `app/src/main/java/com/goplan/app/GoPlanApplication.kt`
 
 **Interfaces:**
-- Produces: Estructura gradle estándar de Android con soporte para Jetpack Compose, Material 3, Navigation, DataStore, Coroutines y tests unitarios.
+- Produces: Estructura gradle estándar de Android con soporte para Jetpack Compose, Material 3, Navigation, DataStore, Coroutines y tests unitarios. `GoPlanApplication` sirve como contenedor de inyección de dependencias manual ligero (singletons para DataStore, Repositorio y FileManager).
 
 - [ ] **Step 1: Crear `settings.gradle.kts` con repositorios Maven Central y Google**
 - [ ] **Step 2: Crear `build.gradle.kts` raíz y `app/build.gradle.kts` con plugins de Android y Compose**
@@ -302,9 +303,9 @@
   - Exportación de paquetes ZIP mediante `FileProvider` hacia LocalSend / Quick Share.
 
 - [ ] **Step 1: Configurar `FileProvider` y `res/xml/file_paths.xml` en `AndroidManifest.xml`**
-- [ ] **Step 2: Declarar `intent-filter` para `ACTION_SEND` (`text/plain`) en `MainActivity`**
-- [ ] **Step 3: Implementar `IntentHandler.kt` para despachar intents salientes hacia Gemini y exportaciones**
+- [ ] **Step 2: Declarar `android:launchMode="singleTop"` e `intent-filter` para `ACTION_SEND` (`text/plain`, `text/markdown`, `text/*`) en `MainActivity`**
+- [ ] **Step 3: Implementar `IntentHandler.kt` con soporte dual: leer texto plano de `Intent.EXTRA_TEXT` o leer streams de archivos adjuntos desde `Intent.EXTRA_STREAM` vía `contentResolver.openInputStream(uri)` (para recibir `CONTEXT.md` desde LocalSend)**
 - [ ] **Step 4: Implementar `ImportPlanBottomSheet.kt` con preselección inteligente y confirmación en un toque**
-- [ ] **Step 5: Conectar navegación y ciclo de vida en `MainActivity.kt`**
+- [ ] **Step 5: Conectar navegación y ciclo de vida en `MainActivity.kt`, capturando intents tanto en `onCreate` como sobrescribiendo `onNewIntent(intent: Intent)`**
 - [ ] **Step 6: Verificar el flujo completo de extremo a extremo**
-- [ ] **Step 7: Commit:** `git commit -m "feat(intent): wire outbound Gemini intent and inbound ImportPlanBottomSheet"`
+- [ ] **Step 7: Commit:** `git commit -m "feat(intent): wire outbound Gemini intent and inbound ImportPlanBottomSheet with singleTop and stream support"`
