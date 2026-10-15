@@ -10,6 +10,10 @@ import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.goplan.app.data.sync.GoogleDriveAuthManager
+import com.goplan.app.data.sync.GoogleDriveSyncEngine
+import com.goplan.app.data.sync.model.SyncResult
 import com.goplan.app.domain.parser.GeminiPlanParser
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
@@ -44,6 +48,8 @@ class WorkspaceViewModel(
     private val preferencesManager: PreferencesManager,
     private val parser: TodoMarkdownParser = TodoMarkdownParser(),
     private val ktorServerManager: KtorServerManager? = null,
+    private val syncEngine: GoogleDriveSyncEngine? = null,
+    private val authManager: GoogleDriveAuthManager? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
@@ -52,6 +58,20 @@ class WorkspaceViewModel(
 
     val isServerRunning: StateFlow<Boolean> = ktorServerManager?.isRunning ?: MutableStateFlow(false)
     val serverUrl: StateFlow<String?> = ktorServerManager?.serverUrl ?: MutableStateFlow(null)
+
+    val signedInAccount: StateFlow<GoogleSignInAccount?> = authManager?.signedInAccount ?: MutableStateFlow(null)
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    private val _lastSyncTimestamp = MutableStateFlow<Long?>(null)
+    val lastSyncTimestamp: StateFlow<Long?> = _lastSyncTimestamp.asStateFlow()
+
+    private val _syncError = MutableStateFlow<String?>(null)
+    val syncError: StateFlow<String?> = _syncError.asStateFlow()
+
+    private val _syncSuccessMessage = MutableStateFlow<String?>(null)
+    val syncSuccessMessage: StateFlow<String?> = _syncSuccessMessage.asStateFlow()
 
     fun toggleServer(enable: Boolean) {
         viewModelScope.launch(ioDispatcher) {
@@ -317,11 +337,79 @@ class WorkspaceViewModel(
         }
     }
 
+    fun syncActiveWorkspace() {
+        if (_isSyncing.value) return
+        val activeWs = _uiState.value.activeWorkspace
+        if (activeWs == null) {
+            _syncError.value = "No hay workspace activo seleccionado"
+            return
+        }
+        val engine = syncEngine
+        if (engine == null) {
+            _syncError.value = "Motor de sincronización no disponible"
+            return
+        }
+
+        viewModelScope.launch(ioDispatcher) {
+            _isSyncing.value = true
+            _syncError.value = null
+            _syncSuccessMessage.value = null
+            try {
+                when (val result = engine.syncWorkspace(activeWs)) {
+                    is SyncResult.Success -> {
+                        _lastSyncTimestamp.value = System.currentTimeMillis()
+                        val parts = mutableListOf<String>()
+                        if (result.uploadedCount > 0) parts.add("${result.uploadedCount} subidos")
+                        if (result.downloadedCount > 0) parts.add("${result.downloadedCount} descargados")
+                        if (result.conflictsCount > 0) parts.add("${result.conflictsCount} conflictos")
+                        val summary = if (parts.isNotEmpty()) " (${parts.joinToString(", ")})" else ""
+                        _syncSuccessMessage.value = "Sincronización completada$summary"
+                        _syncError.value = null
+                        loadWorkspaceData(activeWs)
+                    }
+                    is SyncResult.Error -> {
+                        _syncError.value = result.message
+                        _syncSuccessMessage.value = null
+                    }
+                }
+            } catch (e: Exception) {
+                _syncError.value = e.message ?: "Error desconocido al sincronizar"
+                _syncSuccessMessage.value = null
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    fun signOutGoogle() {
+        authManager?.signOut()
+        _syncError.value = null
+        _syncSuccessMessage.value = null
+    }
+
+    fun clearSyncMessages() {
+        _syncError.value = null
+        _syncSuccessMessage.value = null
+    }
+
     fun loadWorkspace(workspace: Workspace) {
         loadWorkspaceData(workspace)
     }
 
     private fun loadWorkspaceData(workspace: Workspace) {
+        val syncStateFile = File(workspace.rootDir, ".sync_state.json")
+        if (syncStateFile.exists()) {
+            try {
+                val text = syncStateFile.readText(Charsets.UTF_8)
+                val millis = Regex(""""lastSyncMillis"\s*:\s*(\d+)""").find(text)?.groupValues?.get(1)?.toLongOrNull()
+                if (millis != null && millis > 0) {
+                    _lastSyncTimestamp.value = millis
+                }
+            } catch (_: Exception) {}
+        } else {
+            _lastSyncTimestamp.value = null
+        }
+
         val doc = workspaceRepository.getTodoDocument(workspace)
         val taskIdeas = doc.lines.filterIsInstance<TodoLine.Task>().map { it.idea }
         val tags = taskIdeas.flatMap { it.tags }.distinct().sorted()
@@ -369,6 +457,8 @@ class WorkspaceViewModel(
             preferencesManager: PreferencesManager,
             parser: TodoMarkdownParser = TodoMarkdownParser(),
             ktorServerManager: KtorServerManager? = null,
+            syncEngine: GoogleDriveSyncEngine? = null,
+            authManager: GoogleDriveAuthManager? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -378,6 +468,8 @@ class WorkspaceViewModel(
                     preferencesManager = preferencesManager,
                     parser = parser,
                     ktorServerManager = ktorServerManager,
+                    syncEngine = syncEngine,
+                    authManager = authManager,
                     ioDispatcher = ioDispatcher
                 ) as T
             }

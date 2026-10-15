@@ -3,9 +3,14 @@ package com.goplan.app.ui.workspace
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.data.sync.DriveServiceAdapter
+import com.goplan.app.data.sync.GoogleDriveAuthManager
+import com.goplan.app.data.sync.GoogleDriveSyncEngine
+import com.goplan.app.data.sync.model.RemoteFileInfo
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
@@ -424,6 +429,157 @@ class WorkspaceViewModelTest {
         } finally {
             serverManager.stop()
         }
+    }
+
+    private class FakeDriveServiceAdapter : DriveServiceAdapter {
+        val folders = mutableListOf<RemoteFileInfo>()
+        val files = mutableListOf<RemoteFileInfo>()
+        var throwError = false
+
+        override fun findFolder(name: String, parentId: String?): RemoteFileInfo? {
+            return folders.firstOrNull { it.name == name }
+        }
+
+        override fun createFolder(name: String, parentId: String?): RemoteFileInfo {
+            val f = RemoteFileInfo("folder-${folders.size + 1}", name)
+            folders.add(f)
+            return f
+        }
+
+        override fun listFiles(folderId: String): List<RemoteFileInfo> = files
+
+        override fun downloadFile(fileId: String): String = ""
+
+        override fun uploadFile(name: String, parentId: String, content: String, mimeType: String): RemoteFileInfo {
+            if (throwError) throw java.io.IOException("Simulated network failure")
+            val f = RemoteFileInfo("file-${files.size + 1}", name)
+            files.add(f)
+            return f
+        }
+
+        override fun updateFile(fileId: String, content: String): RemoteFileInfo {
+            if (throwError) throw java.io.IOException("Simulated network failure")
+            return RemoteFileInfo(fileId, "updated")
+        }
+    }
+
+    @Test
+    fun testSyncState_initialValues_whenEngineAndAuthNull() = runTest {
+        val viewModel = createViewModel()
+
+        assertNull(viewModel.signedInAccount.value)
+        assertFalse(viewModel.isSyncing.value)
+        assertNull(viewModel.lastSyncTimestamp.value)
+        assertNull(viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testSyncActiveWorkspace_whenEngineNull_setsErrorMessage() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.syncActiveWorkspace()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertEquals("Motor de sincronización no disponible", viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testSyncActiveWorkspace_success_updatesTimestampAndSuccessMessage() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val adapter = FakeDriveServiceAdapter()
+        val syncEngine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = authManager,
+            parser = parser,
+            customAdapter = adapter,
+            ioDispatcher = testDispatcher
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            syncEngine = syncEngine,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        assertEquals(account, viewModel.signedInAccount.value)
+        assertNull(viewModel.lastSyncTimestamp.value)
+
+        viewModel.syncActiveWorkspace()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertNotNull(viewModel.lastSyncTimestamp.value)
+        assertNull(viewModel.syncError.value)
+        assertNotNull(viewModel.syncSuccessMessage.value)
+        assertTrue(viewModel.syncSuccessMessage.value!!.startsWith("Sincronización completada"))
+    }
+
+    @Test
+    fun testSyncActiveWorkspace_error_updatesSyncError() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val adapter = FakeDriveServiceAdapter().apply {
+            throwError = true
+        }
+        val syncEngine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = authManager,
+            parser = parser,
+            customAdapter = adapter,
+            ioDispatcher = testDispatcher
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            syncEngine = syncEngine,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.syncActiveWorkspace()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertNotNull(viewModel.syncError.value)
+        assertEquals("Simulated network failure", viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testSignOutGoogle_clearsAccountAndSyncMessages() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        assertEquals(account, viewModel.signedInAccount.value)
+
+        viewModel.signOutGoogle()
+
+        assertNull(viewModel.signedInAccount.value)
+        assertNull(viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
     }
 }
 

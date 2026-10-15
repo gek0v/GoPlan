@@ -15,6 +15,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lan
@@ -48,11 +51,13 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.Workspace
 import com.goplan.app.ui.server.ServerConnectionDialog
+import com.goplan.app.ui.sync.GoogleDriveSyncDialog
 import com.goplan.app.ui.workspace.components.EditIdeaDialog
 import com.goplan.app.ui.workspace.components.FilterChipsRow
 import com.goplan.app.ui.workspace.components.IdeaItemRow
@@ -67,11 +72,17 @@ fun WorkspaceScreen(
     onPastePlan: () -> Unit,
     onCreatePlan: (Idea) -> Unit,
     onExport: () -> Unit,
+    onSignInGoogle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isServerRunning by viewModel.isServerRunning.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
+    val signedInAccount by viewModel.signedInAccount.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
+    val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
+    val syncError by viewModel.syncError.collectAsState()
+    val syncSuccessMessage by viewModel.syncSuccessMessage.collectAsState()
 
     val view = LocalView.current
     DisposableEffect(isServerRunning) {
@@ -85,6 +96,14 @@ fun WorkspaceScreen(
         uiState = uiState,
         isServerRunning = isServerRunning,
         serverUrl = serverUrl,
+        signedInAccount = signedInAccount,
+        isSyncing = isSyncing,
+        lastSyncTimestamp = lastSyncTimestamp,
+        syncError = syncError,
+        syncSuccessMessage = syncSuccessMessage,
+        onSignInGoogle = onSignInGoogle,
+        onSyncNow = { viewModel.syncActiveWorkspace() },
+        onSignOutGoogle = { viewModel.signOutGoogle() },
         onToggleServer = { viewModel.toggleServer(it) },
         onSwitchWorkspace = { viewModel.switchWorkspace(it) },
         onCreateWorkspace = { viewModel.createWorkspace(it) },
@@ -112,6 +131,14 @@ fun WorkspaceScreenContent(
     uiState: WorkspaceUiState,
     isServerRunning: Boolean = false,
     serverUrl: String? = null,
+    signedInAccount: GoogleSignInAccount? = null,
+    isSyncing: Boolean = false,
+    lastSyncTimestamp: Long? = null,
+    syncError: String? = null,
+    syncSuccessMessage: String? = null,
+    onSignInGoogle: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
+    onSignOutGoogle: () -> Unit = {},
     onToggleServer: (Boolean) -> Unit = {},
     onSwitchWorkspace: (Workspace) -> Unit,
     onCreateWorkspace: (String) -> Unit,
@@ -134,6 +161,7 @@ fun WorkspaceScreenContent(
     var workspaceDropdownExpanded by remember { mutableStateOf(false) }
     var showCreateWorkspaceDialog by remember { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
+    var showSyncDialog by remember { mutableStateOf(false) }
     var newWorkspaceName by remember { mutableStateOf("") }
     var ideaToEdit by remember { mutableStateOf<Idea?>(null) }
     var ideaToDelete by remember { mutableStateOf<Idea?>(null) }
@@ -239,6 +267,25 @@ fun WorkspaceScreenContent(
                     }
                 },
                 actions = {
+                    // Google Drive sync action
+                    IconButton(onClick = { showSyncDialog = true }) {
+                        val icon = when {
+                            isSyncing -> Icons.Default.CloudSync
+                            signedInAccount != null -> Icons.Default.CloudDone
+                            else -> Icons.Default.CloudQueue
+                        }
+                        val tint = when {
+                            isSyncing -> MaterialTheme.colorScheme.primary
+                            signedInAccount != null -> Color(0xFF2E7D32)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = "Sincronización con Google Drive",
+                            tint = tint
+                        )
+                    }
+
                     // Server connection action
                     IconButton(onClick = { showServerDialog = true }) {
                         Icon(
@@ -417,6 +464,20 @@ fun WorkspaceScreenContent(
             serverUrl = serverUrl,
             onToggleServer = onToggleServer,
             onDismiss = { showServerDialog = false }
+        )
+    }
+
+    if (showSyncDialog) {
+        GoogleDriveSyncDialog(
+            account = signedInAccount,
+            isSyncing = isSyncing,
+            lastSyncTimestamp = lastSyncTimestamp,
+            syncError = syncError,
+            syncSuccessMessage = syncSuccessMessage,
+            onSignInGoogle = onSignInGoogle,
+            onSyncNow = onSyncNow,
+            onSignOutGoogle = onSignOutGoogle,
+            onDismiss = { showSyncDialog = false }
         )
     }
 }
