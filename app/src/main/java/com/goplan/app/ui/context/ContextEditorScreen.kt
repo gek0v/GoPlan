@@ -58,6 +58,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.goplan.app.ui.plan.components.MarkdownAuxiliaryToolbar
 import com.goplan.app.ui.plan.components.PlanMarkdownReader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.goplan.app.ui.plan.components.applyMarkdownShortcut
 import kotlinx.coroutines.launch
 
@@ -115,20 +118,22 @@ fun ContextEditorScreenContent(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val content = context.contentResolver.openInputStream(uri)?.use { stream ->
-                    stream.bufferedReader(Charsets.UTF_8).readText()
-                }
-                if (content != null) {
-                    if (uiState.hasUnsavedChanges) {
-                        pendingImportContent = content
-                        showOverwriteConfirmDialog = true
-                    } else {
-                        onImportContent(content)
+            coroutineScope.launch {
+                try {
+                    val content = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { stream ->
+                            stream.bufferedReader(Charsets.UTF_8).readText()
+                        }
                     }
-                }
-            } catch (e: Exception) {
-                coroutineScope.launch {
+                    if (content != null) {
+                        if (uiState.hasUnsavedChanges) {
+                            pendingImportContent = content
+                            showOverwriteConfirmDialog = true
+                        } else {
+                            onImportContent(content)
+                        }
+                    }
+                } catch (e: Exception) {
                     snackbarHostState.showSnackbar("Error al leer archivo: ${e.message}")
                 }
             }

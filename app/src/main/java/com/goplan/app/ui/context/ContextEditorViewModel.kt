@@ -79,6 +79,7 @@ class ContextEditorViewModel(
 
     fun saveContext() {
         val currentState = _uiState.value
+        if (currentState.isSaving) return
         val workspace = currentState.workspace ?: run {
             _uiState.update { it.copy(errorMessage = "No hay un workspace seleccionado") }
             return
