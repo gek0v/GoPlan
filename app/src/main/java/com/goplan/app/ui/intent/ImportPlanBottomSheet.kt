@@ -62,6 +62,7 @@ import com.goplan.app.domain.model.Workspace
 import com.goplan.app.domain.parser.GeminiPlanParser
 import com.goplan.app.domain.parser.ParsedPlanFile
 import com.goplan.app.domain.parser.TodoMarkdownParser
+import com.goplan.app.ui.intent.components.SelectIdeaDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -145,7 +146,7 @@ fun ImportPlanBottomSheet(
     var selectedIdea by remember { mutableStateOf<Idea?>(null) }
 
     var workspaceDropdownExpanded by remember { mutableStateOf(false) }
-    var ideaDropdownExpanded by remember { mutableStateOf(false) }
+    var showSelectIdeaDialog by remember { mutableStateOf(false) }
 
     // Load ideas whenever selectedWorkspace changes
     LaunchedEffect(selectedWorkspace) {
@@ -280,89 +281,67 @@ fun ImportPlanBottomSheet(
                         recentExpansion.workspaceId == selectedWorkspace?.id &&
                         recentExpansion.ideaId == selectedIdea?.id
 
-                Box {
-                    OutlinedCard(
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = workspaceIdeas.isNotEmpty()) {
+                            showSelectIdeaDialog = true
+                        }
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = workspaceIdeas.isNotEmpty()) {
-                                ideaDropdownExpanded = true
-                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = selectedIdea?.title ?: if (workspaceIdeas.isEmpty()) {
-                                        "No hay ideas en este workspace"
-                                    } else {
-                                        "Seleccionar idea"
-                                    },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (isRecentIdea) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AutoAwesome,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Sugerida por expansión reciente en Gemini",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = selectedIdea?.title ?: if (workspaceIdeas.isEmpty()) {
+                                    "No hay ideas en este workspace"
+                                } else {
+                                    "Seleccionar idea"
+                                },
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isRecentIdea) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Sugerida por expansión reciente en Gemini",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
                                 }
                             }
-                            if (workspaceIdeas.isNotEmpty()) {
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                            }
+                        }
+                        if (workspaceIdeas.isNotEmpty()) {
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                         }
                     }
+                }
 
-                    DropdownMenu(
-                        expanded = ideaDropdownExpanded,
-                        onDismissRequest = { ideaDropdownExpanded = false }
-                    ) {
-                        workspaceIdeas.forEach { idea ->
-                            val isRecent = recentExpansion?.ideaId == idea.id &&
-                                    recentExpansion.workspaceId == selectedWorkspace?.id
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(idea.title)
-                                        if (isRecent) {
-                                            Text(
-                                                "Sugerida recientemente",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                },
-                                onClick = {
-                                    selectedIdea = idea
-                                    ideaDropdownExpanded = false
-                                },
-                                leadingIcon = if (idea.id == selectedIdea?.id) {
-                                    { Icon(Icons.Default.Check, contentDescription = null) }
-                                } else null
-                            )
-                        }
-                    }
+                if (showSelectIdeaDialog) {
+                    SelectIdeaDialog(
+                        ideas = workspaceIdeas,
+                        selectedIdea = selectedIdea,
+                        recentExpansion = recentExpansion,
+                        workspaceId = selectedWorkspace?.id,
+                        onIdeaSelected = { selectedIdea = it },
+                        onDismiss = { showSelectIdeaDialog = false }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

@@ -37,6 +37,7 @@ import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.usecase.PrepareGeminiPromptUseCase
 import com.goplan.app.ui.context.ContextEditorScreen
 import com.goplan.app.ui.context.ContextEditorViewModel
+import com.goplan.app.ui.export.ShareExportDialog
 import com.goplan.app.ui.intent.ImportPlanBottomSheet
 import com.goplan.app.ui.intent.IntentHandler
 import com.goplan.app.ui.intent.executeImportContext
@@ -135,80 +136,50 @@ class MainActivity : ComponentActivity() {
 
         if (showExportDialog) {
             val activeWs = workspaceUiState.activeWorkspace
-            AlertDialog(
-                onDismissRequest = { showExportDialog = false },
-                title = { Text("Exportar o Expandir") },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("Selecciona una opción para ${activeWs?.name ?: "el workspace"}:")
-                        Spacer(modifier = Modifier.height(16.dp))
-                        TextButton(
-                            onClick = {
-                                showExportDialog = false
-                                if (activeWs != null) {
-                                    val pendingIdeas = workspaceUiState.allIdeas.filter { it.status == IdeaStatus.PENDING }
-                                    if (pendingIdeas.isEmpty()) {
-                                        Toast.makeText(this@MainActivity, "No hay ideas pendientes para exportar", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        lifecycleScope.launch(Dispatchers.IO) {
-                                            val contextContent = app.workspaceRepository.getContextContent(activeWs)
-                                            val batchPrompt = prepareGeminiPromptUseCase.prepareBatchPrompt(contextContent, pendingIdeas)
-                                            withContext(Dispatchers.Main) {
-                                                IntentHandler.sharePromptToGemini(this@MainActivity, batchPrompt)
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("🤖 Expandir pendientes con Gemini")
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(
-                            onClick = {
-                                showExportDialog = false
-                                if (activeWs != null) {
-                                    lifecycleScope.launch(Dispatchers.IO) {
-                                        val exportDir = File(cacheDir, "exports").apply { mkdirs() }
-                                        val zipFile = File(exportDir, "${activeWs.name}_export.zip")
-                                        app.agentExportManager.createZipBundle(activeWs, workspaceUiState.allIdeas, zipFile)
-                                        withContext(Dispatchers.Main) {
-                                            IntentHandler.shareExportFile(this@MainActivity, zipFile, "application/zip")
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("📦 Paquete ZIP para agentes (.zip)")
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(
-                            onClick = {
-                                showExportDialog = false
-                                if (activeWs != null) {
-                                    lifecycleScope.launch(Dispatchers.IO) {
-                                        val exportDir = File(cacheDir, "exports").apply { mkdirs() }
-                                        val mdFile = File(exportDir, "${activeWs.name}_bundle.md")
-                                        val markdown = app.agentExportManager.createUnifiedMarkdown(activeWs, workspaceUiState.allIdeas)
-                                        mdFile.writeText(markdown, Charsets.UTF_8)
-                                        withContext(Dispatchers.Main) {
-                                            IntentHandler.shareExportFile(this@MainActivity, mdFile, "text/markdown")
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("📄 Markdown unificado (.md)")
+            ShareExportDialog(
+                workspace = activeWs,
+                ideas = workspaceUiState.allIdeas,
+                onDismiss = { showExportDialog = false },
+                onExpandWithGemini = { targetIdeas ->
+                    if (targetIdeas.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "No hay ideas seleccionadas para expandir", Toast.LENGTH_SHORT).show()
+                    } else if (activeWs != null) {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val contextContent = app.workspaceRepository.getContextContent(activeWs)
+                            val batchPrompt = prepareGeminiPromptUseCase.prepareBatchPrompt(contextContent, targetIdeas)
+                            withContext(Dispatchers.Main) {
+                                IntentHandler.sharePromptToGemini(this@MainActivity, batchPrompt)
+                            }
                         }
                     }
                 },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showExportDialog = false }) {
-                        Text("Cerrar")
+                onExportZip = { targetIdeas ->
+                    if (targetIdeas.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "No hay ideas seleccionadas para exportar", Toast.LENGTH_SHORT).show()
+                    } else if (activeWs != null) {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val exportDir = File(cacheDir, "exports").apply { mkdirs() }
+                            val zipFile = File(exportDir, "${activeWs.name}_export.zip")
+                            app.agentExportManager.createZipBundle(activeWs, targetIdeas, zipFile)
+                            withContext(Dispatchers.Main) {
+                                IntentHandler.shareExportFile(this@MainActivity, zipFile, "application/zip")
+                            }
+                        }
+                    }
+                },
+                onExportMarkdown = { targetIdeas ->
+                    if (targetIdeas.isEmpty()) {
+                        Toast.makeText(this@MainActivity, "No hay ideas seleccionadas para exportar", Toast.LENGTH_SHORT).show()
+                    } else if (activeWs != null) {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            val exportDir = File(cacheDir, "exports").apply { mkdirs() }
+                            val mdFile = File(exportDir, "${activeWs.name}_bundle.md")
+                            val markdown = app.agentExportManager.createUnifiedMarkdown(activeWs, targetIdeas)
+                            mdFile.writeText(markdown, Charsets.UTF_8)
+                            withContext(Dispatchers.Main) {
+                                IntentHandler.shareExportFile(this@MainActivity, mdFile, "text/markdown")
+                            }
+                        }
                     }
                 }
             )
