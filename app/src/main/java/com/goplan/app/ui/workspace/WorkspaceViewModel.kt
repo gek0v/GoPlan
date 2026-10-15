@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 data class WorkspaceUiState(
     val isLoading: Boolean = false,
@@ -165,6 +166,45 @@ class WorkspaceViewModel(
                 loadWorkspaceData(activeWs)
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al descartar idea") }
+            }
+        }
+    }
+
+    fun editIdea(idea: Idea, newTitle: String, newTags: Set<String>) {
+        if (newTitle.isBlank()) return
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                val doc = workspaceRepository.getTodoDocument(activeWs)
+                val updatedDoc = parser.updateIdea(doc, idea.id, newTitle.trim(), newTags)
+                workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
+                loadWorkspaceData(activeWs)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al editar idea") }
+            }
+        }
+    }
+
+    fun deleteIdeaPermanently(idea: Idea, deleteAssociatedPlans: Boolean = true) {
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                val activeWs = _uiState.value.activeWorkspace ?: return@launch
+                if (deleteAssociatedPlans) {
+                    idea.plans.forEach { plan ->
+                        try {
+                            val planFile = File(activeWs.rootDir, plan.relativePath)
+                            if (planFile.exists()) {
+                                planFile.delete()
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+                val doc = workspaceRepository.getTodoDocument(activeWs)
+                val updatedDoc = parser.deleteIdea(doc, idea.id)
+                workspaceRepository.saveTodoDocument(activeWs, updatedDoc)
+                loadWorkspaceData(activeWs)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message ?: "Error al eliminar idea") }
             }
         }
     }

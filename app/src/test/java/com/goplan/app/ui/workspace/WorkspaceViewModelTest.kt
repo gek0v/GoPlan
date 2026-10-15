@@ -312,5 +312,49 @@ class WorkspaceViewModelTest {
         val content = repository.readPlanFile(activeWs, "planes/disenar-base-de-datos.md")
         assertTrue(content.contains("# Plan: Diseñar base de datos"))
     }
+
+    @Test
+    fun testEditIdea_updatesTitleAndTagsInTodoAndUiState() = runTest {
+        val viewModel = createViewModel()
+        viewModel.addIdea("Idea inicial #v1")
+
+        val idea = viewModel.uiState.value.ideas.first { it.title == "Idea inicial" }
+        viewModel.editIdea(idea, "Idea modificada", setOf("v2", "release"))
+
+        val updatedIdeas = viewModel.uiState.value.ideas
+        assertEquals(1, updatedIdeas.size)
+        assertEquals("Idea modificada", updatedIdeas[0].title)
+        assertEquals(setOf("v2", "release"), updatedIdeas[0].tags)
+
+        val activeWs = viewModel.uiState.value.activeWorkspace!!
+        val doc = repository.getTodoDocument(activeWs)
+        val task = doc.lines.filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>().first()
+        assertEquals("Idea modificada", task.idea.title)
+        assertEquals(setOf("v2", "release"), task.idea.tags)
+    }
+
+    @Test
+    fun testDeleteIdeaPermanently_removesIdeaAndAssociatedPlanFiles() = runTest {
+        val viewModel = createViewModel()
+        viewModel.addIdea("Idea a eliminar")
+
+        val idea = viewModel.uiState.value.ideas.first()
+        viewModel.createPlanManually(idea) {}
+
+        val activeWs = viewModel.uiState.value.activeWorkspace!!
+        val planFile = File(activeWs.rootDir, "planes/idea-a-eliminar.md")
+        assertTrue(planFile.exists())
+
+        val ideaWithPlan = viewModel.uiState.value.ideas.first()
+        viewModel.deleteIdeaPermanently(ideaWithPlan, deleteAssociatedPlans = true)
+
+        assertTrue(viewModel.uiState.value.ideas.isEmpty())
+        assertFalse(planFile.exists())
+
+        val doc = repository.getTodoDocument(activeWs)
+        val tasks = doc.lines.filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>()
+        assertTrue(tasks.isEmpty())
+    }
 }
+
 

@@ -100,6 +100,58 @@ class TodoMarkdownParser {
         return document.copy(lines = newLines)
     }
 
+    fun updateIdea(document: TodoDocument, ideaId: String, newTitle: String, newTags: Set<String>): TodoDocument {
+        val cleanTitle = newTitle.trim()
+        val newLines = document.lines.map { line ->
+            if (line is TodoLine.Task && line.idea.id == ideaId) {
+                val indent = line.idea.rawLine.takeWhile { it.isWhitespace() }
+                val markerPrefix = "$indent- ${line.idea.status.marker}"
+
+                val body = if (line.idea.plans.size == 1 && line.idea.plans[0].label.equals(cleanTitle, ignoreCase = true)) {
+                    "[$cleanTitle](${line.idea.plans[0].relativePath})"
+                } else if (line.idea.plans.size == 1) {
+                    "$cleanTitle ([${line.idea.plans[0].label}](${line.idea.plans[0].relativePath}))"
+                } else if (line.idea.plans.size > 1) {
+                    val linksString = line.idea.plans.joinToString(", ") { "[${it.label}](${it.relativePath})" }
+                    "$cleanTitle ($linksString)"
+                } else {
+                    cleanTitle
+                }
+
+                val tagsPart = if (newTags.isNotEmpty()) {
+                    " " + newTags.joinToString(" ") { "#$it" }
+                } else {
+                    ""
+                }
+
+                val hasExplicitId = explicitIdRegex.containsMatchIn(line.idea.rawLine)
+                val idPart = if (hasExplicitId) {
+                    " <!-- id:${line.idea.id} -->"
+                } else {
+                    ""
+                }
+
+                val newRawLine = "$markerPrefix $body$tagsPart$idPart"
+                val updatedIdea = line.idea.copy(
+                    title = cleanTitle,
+                    tags = newTags,
+                    rawLine = newRawLine
+                )
+                TodoLine.Task(updatedIdea)
+            } else {
+                line
+            }
+        }
+        return document.copy(lines = newLines)
+    }
+
+    fun deleteIdea(document: TodoDocument, ideaId: String): TodoDocument {
+        val newLines = document.lines.filterNot { line ->
+            line is TodoLine.Task && line.idea.id == ideaId
+        }
+        return document.copy(lines = newLines)
+    }
+
     fun addIdea(document: TodoDocument, title: String, tags: Set<String>): TodoDocument {
         val cleanTitle = title.trim()
         val tagsPart = if (tags.isNotEmpty()) " " + tags.joinToString(" ") { "#$it" } else ""

@@ -238,4 +238,53 @@ class TodoMarkdownParserTest {
 
         assertEquals(expected, serialized)
     }
+
+    @Test
+    fun testUpdateIdea_updatesTitleAndTagsPreservingStatusAndId() {
+        val original = "- [/] Tarea Vieja #vieja <!-- id:t-123 -->"
+        val doc = parser.parse(original)
+
+        val updated = parser.updateIdea(doc, "t-123", "Tarea Renovada", setOf("nueva", "v2"))
+        val serialized = parser.serialize(updated)
+
+        assertEquals("- [/] Tarea Renovada #nueva #v2 <!-- id:t-123 -->", serialized)
+    }
+
+    @Test
+    fun testUpdateIdea_preservesExistingPlanLinks() {
+        val original = "- [/] Tarea con Plan ([UI](planes/ui.md)) #tag1 <!-- id:p-99 -->"
+        val doc = parser.parse(original)
+
+        val updated = parser.updateIdea(doc, "p-99", "Nuevo Título", setOf("tag2"))
+        val serialized = parser.serialize(updated)
+
+        assertEquals("- [/] Nuevo Título ([UI](planes/ui.md)) #tag2 <!-- id:p-99 -->", serialized)
+    }
+
+    @Test
+    fun testDeleteIdea_removesTaskLinePreservingSurroundings() {
+        val original = """
+            # Cabecera
+            - [ ] Tarea 1 <!-- id:1 -->
+            - [ ] Tarea 2 <!-- id:2 -->
+            - [ ] Tarea 3 <!-- id:3 -->
+
+            Comentario final
+        """.trimIndent()
+
+        val doc = parser.parse(original)
+        val updated = parser.deleteIdea(doc, "2")
+        val serialized = parser.serialize(updated)
+
+        val expected = """
+            # Cabecera
+            - [ ] Tarea 1 <!-- id:1 -->
+            - [ ] Tarea 3 <!-- id:3 -->
+
+            Comentario final
+        """.trimIndent()
+
+        assertEquals(expected, serialized)
+    }
 }
+

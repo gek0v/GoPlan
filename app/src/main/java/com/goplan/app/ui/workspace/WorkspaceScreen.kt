@@ -48,6 +48,7 @@ import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.ui.workspace.components.EditIdeaDialog
 import com.goplan.app.ui.workspace.components.FilterChipsRow
 import com.goplan.app.ui.workspace.components.IdeaItemRow
 import com.goplan.app.ui.workspace.components.QuickCaptureBar
@@ -80,6 +81,8 @@ fun WorkspaceScreen(
         onExpandWithGemini = onExpandWithGemini,
         onPastePlan = onPastePlan,
         onCreatePlan = onCreatePlan,
+        onEditIdea = { idea, title, tags -> viewModel.editIdea(idea, title, tags) },
+        onDeleteIdeaPermanently = { idea -> viewModel.deleteIdeaPermanently(idea) },
         onExport = onExport,
         modifier = modifier
     )
@@ -102,12 +105,16 @@ fun WorkspaceScreenContent(
     onExpandWithGemini: (idea: Idea) -> Unit,
     onPastePlan: () -> Unit,
     onCreatePlan: (Idea) -> Unit,
+    onEditIdea: (Idea, String, Set<String>) -> Unit = { _, _, _ -> },
+    onDeleteIdeaPermanently: (Idea) -> Unit = {},
     onExport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var workspaceDropdownExpanded by remember { mutableStateOf(false) }
     var showCreateWorkspaceDialog by remember { mutableStateOf(false) }
     var newWorkspaceName by remember { mutableStateOf("") }
+    var ideaToEdit by remember { mutableStateOf<Idea?>(null) }
+    var ideaToDelete by remember { mutableStateOf<Idea?>(null) }
 
     if (showCreateWorkspaceDialog) {
         AlertDialog(
@@ -319,11 +326,57 @@ fun WorkspaceScreenContent(
                                 }
                             },
                             onExpandWithGemini = onExpandWithGemini,
-                            onCreatePlan = onCreatePlan
+                            onCreatePlan = onCreatePlan,
+                            onEdit = { ideaToEdit = it },
+                            onDeletePermanently = { ideaToDelete = it }
                         )
                     }
                 }
             }
         }
+    }
+
+    ideaToEdit?.let { idea ->
+        EditIdeaDialog(
+            idea = idea,
+            onConfirm = { newTitle, newTags ->
+                onEditIdea(idea, newTitle, newTags)
+                ideaToEdit = null
+            },
+            onDismiss = { ideaToEdit = null }
+        )
+    }
+
+    ideaToDelete?.let { idea ->
+        AlertDialog(
+            onDismissRequest = { ideaToDelete = null },
+            title = { Text("Eliminar Tarea") },
+            text = {
+                val hasPlans = idea.plans.isNotEmpty()
+                Text(
+                    text = if (hasPlans) {
+                        "¿Deseas eliminar definitivamente \"${idea.title}\"?\nSe borrará de TODO.md y se eliminarán sus ${idea.plans.size} plan(es) asociado(s)."
+                    } else {
+                        "¿Deseas eliminar definitivamente \"${idea.title}\"?\nSe borrará de TODO.md."
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val toDelete = idea
+                        ideaToDelete = null
+                        onDeleteIdeaPermanently(toDelete)
+                    }
+                ) {
+                    Text("Eliminar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { ideaToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
