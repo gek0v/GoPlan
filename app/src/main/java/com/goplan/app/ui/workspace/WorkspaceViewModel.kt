@@ -52,6 +52,14 @@ class WorkspaceViewModel(
 
     init {
         loadInitialData()
+        viewModelScope.launch {
+            workspaceRepository.workspaceChangesFlow.collect { changedWorkspaceId ->
+                val currentActive = _uiState.value.activeWorkspace
+                if (currentActive != null && currentActive.id == changedWorkspaceId) {
+                    loadWorkspace(currentActive)
+                }
+            }
+        }
     }
 
     private fun loadInitialData() {
@@ -292,6 +300,10 @@ class WorkspaceViewModel(
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al crear plan") }
             }
         }
+    }
+
+    fun loadWorkspace(workspace: Workspace) {
+        loadWorkspaceData(workspace)
     }
 
     private fun loadWorkspaceData(workspace: Workspace) {

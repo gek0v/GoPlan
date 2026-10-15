@@ -355,6 +355,24 @@ class WorkspaceViewModelTest {
         val tasks = doc.lines.filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>()
         assertTrue(tasks.isEmpty())
     }
+
+    @Test
+    fun testViewModelRefreshesWhenWorkspaceChangesFlowEmits() = runTest {
+        val viewModel = createViewModel()
+        val activeWs = viewModel.uiState.value.activeWorkspace!!
+        assertEquals("Default", activeWs.name)
+        assertTrue(viewModel.uiState.value.ideas.isEmpty())
+
+        // Simular que un agente o Ktor guarda una nueva idea directamente en disco via repository
+        val currentDoc = repository.getTodoDocument(activeWs)
+        val updatedDoc = parser.addIdea(currentDoc, "Idea externa recibida", setOf("reactivo"))
+        repository.saveTodoDocument(activeWs, updatedDoc)
+
+        val state = viewModel.uiState.value
+        assertEquals(1, state.ideas.size)
+        assertEquals("Idea externa recibida", state.ideas[0].title)
+        assertTrue(state.availableTags.contains("reactivo"))
+    }
 }
 
 

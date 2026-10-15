@@ -16,7 +16,14 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class WorkspaceRepositoryTest {
 
     private lateinit var tempBaseDir: File
@@ -190,5 +197,56 @@ class WorkspaceRepositoryTest {
         evilPlan.writeText("evil")
 
         repository.readPlanFile(ws, "../AlphaEvil/plan.md")
+    }
+
+    @Test
+    fun testWorkspaceChangesFlowEmitsOnSave() = runTest {
+        val tempDir = Files.createTempDirectory("goplan_repo_test").toFile()
+        val fm = WorkspaceFileManager(tempDir)
+        val p = TodoMarkdownParser()
+        val repo = WorkspaceRepository(fm, p)
+        val ws = repo.createWorkspace("Reactivo")
+
+        val emittedList = mutableListOf<String>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            repo.workspaceChangesFlow.collect { emittedList.add(it) }
+        }
+
+        repo.saveContextContent(ws, "# Nuevo Contexto")
+        assertEquals(listOf("Reactivo"), emittedList)
+
+        val doc = repo.getTodoDocument(ws)
+        val updatedDoc = p.addIdea(doc, "Idea de prueba", setOf("tag1"))
+        repo.saveTodoDocument(ws, updatedDoc)
+        assertEquals(listOf("Reactivo", "Reactivo"), emittedList)
+
+        repo.savePlanFile(ws, "plan1.md", "# Plan 1")
+        assertEquals(listOf("Reactivo", "Reactivo", "Reactivo"), emittedList)
+
+        repo.notifyWorkspaceChanged(ws.id)
+        assertEquals(listOf("Reactivo", "Reactivo", "Reactivo", "Reactivo"), emittedList)
+
+        job.cancel()
+        tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun testMutexSerializesConcurrentWrites() = runTest {
+        val ws = repository.createWorkspace("Concurrente")
+        val coroutineCount = 10
+        val jobs = (1..coroutineCount).map { i ->
+            launch(Dispatchers.Default) {
+                repository.savePlanFile(ws, "plan-$i.md", "# Contenido del plan $i")
+                repository.saveContextContent(ws, "# Contexto por corrutina $i")
+            }
+        }
+        jobs.joinAll()
+
+        for (i in 1..coroutineCount) {
+            val content = repository.readPlanFile(ws, "plan-$i.md")
+            assertEquals("# Contenido del plan $i", content)
+        }
+        val finalContext = repository.getContextContent(ws)
+        assertTrue(finalContext.startsWith("# Contexto por corrutina"))
     }
 }
