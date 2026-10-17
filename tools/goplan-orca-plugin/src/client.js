@@ -67,6 +67,10 @@ export class GoPlanClient {
     this.fetchFn = options.fetchFn || globalThis.fetch;
   }
 
+  get baseUrl() {
+    return this.serverUrl;
+  }
+
   /**
    * Internal HTTP request helper with timeout and diagnostic error handling.
    * @private
