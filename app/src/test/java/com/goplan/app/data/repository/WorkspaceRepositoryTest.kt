@@ -1,6 +1,7 @@
 package com.goplan.app.data.repository
 
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.TodoDocument
@@ -249,4 +250,75 @@ class WorkspaceRepositoryTest {
         val finalContext = repository.getContextContent(ws)
         assertTrue(finalContext.startsWith("# Contexto por corrutina"))
     }
+
+    @Test
+    fun testGetWorkspaceSummary_calculatesCorrectCounts() {
+        val ws = repository.createWorkspace("metrics-test")
+        val todoDoc = TodoDocument(
+            ideas = listOf(
+                Idea(id = "1", title = "P1", status = IdeaStatus.PENDING),
+                Idea(id = "2", title = "P2", status = IdeaStatus.PENDING),
+                Idea(id = "3", title = "IP1", status = IdeaStatus.IN_PROGRESS),
+                Idea(id = "4", title = "D1", status = IdeaStatus.COMPLETED)
+            )
+        )
+        repository.saveTodoDocument(ws, todoDoc)
+        repository.savePlanFile(ws, "plan_1.md", "# Plan 1")
+        repository.savePlanFile(ws, "plan_2.md", "# Plan 2")
+
+        val summary = repository.getWorkspaceSummary(ws, isActive = true)
+
+        assertEquals(ws.id, summary.workspace.id)
+        assertTrue(summary.isActive)
+        assertEquals(2, summary.pendingIdeasCount)
+        assertEquals(1, summary.inProgressIdeasCount)
+        assertEquals(2, summary.plansCount)
+    }
+
+    @Test
+    fun testGetWorkspaceSummary_emptyWorkspace_returnsZeroCounts() {
+        val ws = repository.createWorkspace("empty-ws")
+        // Remove planes dir to test resilient behavior
+        File(ws.rootDir, "planes").deleteRecursively()
+
+        val summary = repository.getWorkspaceSummary(ws, isActive = false)
+
+        assertEquals(ws.id, summary.workspace.id)
+        assertFalse(summary.isActive)
+        assertEquals(0, summary.pendingIdeasCount)
+        assertEquals(0, summary.inProgressIdeasCount)
+        assertEquals(0, summary.plansCount)
+    }
+
+    @Test
+    fun testGetAllWorkspaceSummaries_marksActiveCorrectly() {
+        val ws1 = repository.createWorkspace("ws-alpha")
+        val ws2 = repository.createWorkspace("ws-beta")
+
+        val summaries = repository.getAllWorkspaceSummaries(activeWorkspaceId = ws1.id)
+
+        assertEquals(2, summaries.size)
+        val s1 = summaries.first { it.workspace.id == ws1.id }
+        val s2 = summaries.first { it.workspace.id == ws2.id }
+        assertTrue(s1.isActive)
+        assertFalse(s2.isActive)
+    }
+
+    @Test
+    fun testGetAllWorkspaceSummaries_nullActive_noneActive() {
+        val ws1 = repository.createWorkspace("ws-alpha")
+        val ws2 = repository.createWorkspace("ws-beta")
+
+        val summaries = repository.getAllWorkspaceSummaries(activeWorkspaceId = null)
+
+        assertEquals(2, summaries.size)
+        assertTrue(summaries.none { it.isActive })
+    }
 }
+
+private fun TodoDocument(ideas: List<Idea>): TodoDocument =
+    TodoDocument(lines = ideas.map { TodoLine.Task(it) })
+
+private fun Idea(id: String, title: String, status: IdeaStatus): Idea =
+    Idea(id = id, status = status, title = title, tags = emptySet(), plans = emptyList(), rawLine = "- ${status.marker} $title")
+

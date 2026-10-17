@@ -1,8 +1,11 @@
 package com.goplan.app.data.repository
 
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.TodoDocument
+import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.domain.model.WorkspaceSummary
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -87,4 +90,27 @@ class WorkspaceRepository(
             fileManager.readPlanFile(workspace, relativePath)
         }
     }
+
+    fun getWorkspaceSummary(workspace: Workspace, isActive: Boolean): WorkspaceSummary {
+        val doc = getTodoDocument(workspace)
+        val ideas = doc.lines.filterIsInstance<TodoLine.Task>().map { it.idea }
+        val pending = ideas.count { it.status == IdeaStatus.PENDING }
+        val inProgress = ideas.count { it.status == IdeaStatus.IN_PROGRESS }
+        val planesDir = File(workspace.rootDir, "planes")
+        val plans = planesDir.listFiles { f -> f.isFile && f.name.endsWith(".md") }?.size ?: 0
+        return WorkspaceSummary(
+            workspace = workspace,
+            isActive = isActive,
+            pendingIdeasCount = pending,
+            inProgressIdeasCount = inProgress,
+            plansCount = plans
+        )
+    }
+
+    fun getAllWorkspaceSummaries(activeWorkspaceId: String?): List<WorkspaceSummary> {
+        return getWorkspaces().map { ws ->
+            getWorkspaceSummary(ws, isActive = (ws.id == activeWorkspaceId))
+        }
+    }
 }
+
