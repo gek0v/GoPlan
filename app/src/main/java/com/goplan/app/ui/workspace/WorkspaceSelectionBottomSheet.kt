@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,7 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -168,7 +168,6 @@ fun WorkspaceSelectionBottomSheet(
                             summary = summary,
                             onClick = {
                                 onSelectWorkspace(summary.workspace)
-                                onDismiss()
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -339,13 +338,17 @@ fun InactiveWorkspaceCard(
                 )
             }
 
-            OutlinedButton(
-                onClick = onClick,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                color = Color.Transparent
             ) {
                 Text(
                     text = "Abrir",
-                    style = MaterialTheme.typography.labelMedium
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
         }
@@ -361,6 +364,12 @@ fun CreateWorkspaceCard(
     var newName by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val focusRequester = remember { FocusRequester() }
+
+    BackHandler(enabled = isCreating) {
+        isCreating = false
+        newName = ""
+        errorMessage = null
+    }
 
     LaunchedEffect(isCreating) {
         if (isCreating) {

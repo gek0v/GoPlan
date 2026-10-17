@@ -727,6 +727,24 @@ class WorkspaceViewModelTest {
         assertNotNull(activeSummary)
         assertTrue(activeSummary?.isActive == true)
     }
+
+    @Test
+    fun testLoadWorkspaceSummaries_multipleCalls_cancelsPreviousAndCompletesWithLatestState() = runTest {
+        val viewModel = createViewModel()
+        viewModel.createAndSwitchWorkspace("Project A")
+        viewModel.createAndSwitchWorkspace("Project B")
+
+        // Rapid successive invocations should cancel previous in-flight jobs and produce correct summaries
+        viewModel.loadWorkspaceSummaries()
+        viewModel.loadWorkspaceSummaries()
+        viewModel.loadWorkspaceSummaries()
+
+        val summaries = viewModel.workspaceSummaries.value
+        assertEquals(3, summaries.size) // Default, Project A, Project B
+        val activeSummary = summaries.find { it.workspace.name == "Project B" }
+        assertNotNull(activeSummary)
+        assertTrue(activeSummary?.isActive == true)
+    }
 }
 
 

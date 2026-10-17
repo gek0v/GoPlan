@@ -24,6 +24,7 @@ import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -103,10 +104,14 @@ class WorkspaceViewModel(
         _showWorkspaceSheet.value = false
     }
 
+    private var loadSummariesJob: Job? = null
+
     fun loadWorkspaceSummaries() {
-        viewModelScope.launch(ioDispatcher) {
+        loadSummariesJob?.cancel()
+        loadSummariesJob = viewModelScope.launch(ioDispatcher) {
             val activeId = _uiState.value.activeWorkspace?.id
-            _workspaceSummaries.value = workspaceRepository.getAllWorkspaceSummaries(activeId)
+            val summaries = workspaceRepository.getAllWorkspaceSummaries(activeId)
+            _workspaceSummaries.value = summaries
         }
     }
 
@@ -245,6 +250,7 @@ class WorkspaceViewModel(
                 preferencesManager.saveActiveWorkspace(workspace.id)
                 _uiState.update { it.copy(selectedTags = emptySet(), errorMessage = null) }
                 loadWorkspaceData(workspace)
+                loadWorkspaceSummaries()
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al cambiar de workspace") }
             }
