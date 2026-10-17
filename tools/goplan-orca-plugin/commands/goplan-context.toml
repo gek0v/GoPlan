@@ -1,0 +1,5 @@
+description = "Inserta el contenido actual de CONTEXT.md de GoPlan en el contexto del chat"
+prompt = """
+Llama a la herramienta MCP `goplan_get_context`.
+Muestra e incorpora el contenido completo de `CONTEXT.md` del workspace activo en la respuesta para que tanto el usuario como el asistente tengan presente el contexto del proyecto definido en el móvil.
+"""

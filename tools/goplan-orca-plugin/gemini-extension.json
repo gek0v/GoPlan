@@ -1,0 +1,10 @@
+{
+  "name": "goplan",
+  "version": "1.0.0",
+  "description": "GoPlan mobile integration for Orca/Antigravity: MCP tools, context sync, plan ingestion, and quick chat commands.",
+  "contextFileName": "CONTEXT.md",
+  "author": {
+    "name": "GoPlan Team"
+  },
+  "license": "MIT"
+}

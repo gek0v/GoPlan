@@ -1,0 +1,13 @@
+# GoPlan Configuration File
+# Place this file in your project root, workspace, or home directory as `.goplanrc`
+
+# The local IP and port where GoPlan Android HTTP server is running
+# Example for Wi-Fi: http://192.168.1.50:8080
+# Example for USB/ADB: http://127.0.0.1:8080 (requires: adb forward tcp:8080 tcp:8080)
+GOPLAN_SERVER_URL=http://127.0.0.1:8080
+
+# Optional: Default workspace ID to operate on (if omitted, uses the active workspace in the mobile app)
+# GOPLAN_WORKSPACE_ID=default
+
+# Optional: Network timeout in milliseconds (default is 8000)
+# GOPLAN_TIMEOUT_MS=8000

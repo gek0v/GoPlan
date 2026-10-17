@@ -1,0 +1,30 @@
+{
+  "name": "goplan-orca-plugin",
+  "version": "1.0.0",
+  "description": "Orca/Antigravity plugin for GoPlan: MCP server, REST integration, skills, and slash commands",
+  "main": "./src/index.js",
+  "type": "module",
+  "bin": {
+    "goplan-mcp": "./bin/mcp-server.js",
+    "goplan": "./bin/cli.js"
+  },
+  "scripts": {
+    "start": "node ./bin/mcp-server.js",
+    "cli": "node ./bin/cli.js",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "goplan",
+    "orca",
+    "antigravity",
+    "mcp",
+    "model-context-protocol",
+    "mobile-sync",
+    "agent-tools"
+  ],
+  "author": "GoPlan Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

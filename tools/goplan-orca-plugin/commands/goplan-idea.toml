@@ -1,0 +1,6 @@
+description = "Envía una idea o tarea rápida a la app GoPlan con soporte para #etiquetas"
+prompt = """
+Llama inmediatamente a la herramienta MCP `goplan_send_idea` pasando `text = "{{args}}"`.
+Muestra la confirmación formateada con el ID asignado, el título limpio y las etiquetas detectadas.
+Si no se proporcionaron argumentos, solicita al usuario el texto de la idea que desea registrar.
+"""

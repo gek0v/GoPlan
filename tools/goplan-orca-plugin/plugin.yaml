@@ -1,0 +1,12 @@
+name: goplan
+version: 1.0.0
+description: GoPlan mobile app bidirectional synchronization for Orca/Antigravity
+author: GoPlan Team
+provides_commands:
+  - goplan
+  - goplan-idea
+  - goplan-status
+  - goplan-context
+  - goplan-sync
+provides_skills:
+  - goplan
