@@ -10,6 +10,7 @@ import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.domain.model.WorkspaceSummary
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.data.sync.GoogleDriveAuthManager
 import com.goplan.app.data.sync.GoogleDriveSyncEngine
@@ -26,7 +27,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -83,6 +86,28 @@ class WorkspaceViewModel(
 
     fun clearRecoverableAuthIntent() {
         _recoverableAuthIntent.value = null
+    }
+
+    private val _showWorkspaceSheet = MutableStateFlow(false)
+    val showWorkspaceSheet: StateFlow<Boolean> = _showWorkspaceSheet.asStateFlow()
+
+    private val _workspaceSummaries = MutableStateFlow<List<WorkspaceSummary>>(emptyList())
+    val workspaceSummaries: StateFlow<List<WorkspaceSummary>> = _workspaceSummaries.asStateFlow()
+
+    fun openWorkspaceSheet() {
+        _showWorkspaceSheet.value = true
+        loadWorkspaceSummaries()
+    }
+
+    fun closeWorkspaceSheet() {
+        _showWorkspaceSheet.value = false
+    }
+
+    fun loadWorkspaceSummaries() {
+        viewModelScope.launch(ioDispatcher) {
+            val activeId = _uiState.value.activeWorkspace?.id
+            _workspaceSummaries.value = workspaceRepository.getAllWorkspaceSummaries(activeId)
+        }
     }
 
     // OTA & Update states
@@ -171,7 +196,16 @@ class WorkspaceViewModel(
                 if (currentActive != null && currentActive.id == changedWorkspaceId) {
                     loadWorkspace(currentActive)
                 }
+                loadWorkspaceSummaries()
             }
+        }
+        viewModelScope.launch(ioDispatcher) {
+            _uiState
+                .map { it.activeWorkspace?.id to it.workspaces }
+                .distinctUntilChanged()
+                .collect {
+                    loadWorkspaceSummaries()
+                }
         }
     }
 
@@ -230,6 +264,42 @@ class WorkspaceViewModel(
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al crear workspace") }
             }
+        }
+    }
+
+    fun createAndSwitchWorkspace(name: String): Result<Workspace> {
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) {
+            return Result.failure(IllegalArgumentException("El nombre no puede estar vacío"))
+        }
+        val invalidCharsRegex = Regex("""[\\/:*?"<>|]""")
+        if (invalidCharsRegex.containsMatchIn(cleanName)) {
+            return Result.failure(IllegalArgumentException("El nombre contiene caracteres inválidos"))
+        }
+        val existing = workspaceRepository.getWorkspaces()
+        if (existing.any { it.name.equals(cleanName, ignoreCase = true) }) {
+            return Result.failure(IllegalArgumentException("Ya existe un espacio con ese nombre"))
+        }
+
+        return try {
+            val created = workspaceRepository.createWorkspace(cleanName)
+            val allWorkspaces = workspaceRepository.getWorkspaces()
+            viewModelScope.launch(ioDispatcher) {
+                preferencesManager.saveActiveWorkspace(created.id)
+            }
+            _uiState.update {
+                it.copy(
+                    workspaces = allWorkspaces,
+                    selectedTags = emptySet(),
+                    errorMessage = null
+                )
+            }
+            loadWorkspaceData(created)
+            loadWorkspaceSummaries()
+            closeWorkspaceSheet()
+            Result.success(created)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

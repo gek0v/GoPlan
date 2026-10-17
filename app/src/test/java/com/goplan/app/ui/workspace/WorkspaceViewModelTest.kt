@@ -656,6 +656,77 @@ class WorkspaceViewModelTest {
         viewModel.dismissUpdateDialog()
         assertFalse(viewModel.showUpdateDialog.value)
     }
+
+    @Test
+    fun testOpenAndCloseWorkspaceSheet() = runTest {
+        val viewModel = createViewModel()
+        assertFalse(viewModel.showWorkspaceSheet.value)
+
+        viewModel.openWorkspaceSheet()
+        assertTrue(viewModel.showWorkspaceSheet.value)
+
+        viewModel.closeWorkspaceSheet()
+        assertFalse(viewModel.showWorkspaceSheet.value)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_success_switchesAndRefreshes() = runTest {
+        val viewModel = createViewModel()
+
+        val result = viewModel.createAndSwitchWorkspace("Project Delta")
+
+        assertTrue(result.isSuccess)
+        val created = result.getOrNull()!!
+        assertEquals("Project Delta", created.name)
+        assertEquals(created.id, viewModel.uiState.value.activeWorkspace?.id)
+        assertFalse(viewModel.showWorkspaceSheet.value)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_duplicateName_fails() = runTest {
+        val viewModel = createViewModel()
+        viewModel.createAndSwitchWorkspace("Existing")
+
+        val duplicateResult = viewModel.createAndSwitchWorkspace("existing")
+
+        assertTrue(duplicateResult.isFailure)
+        assertTrue(duplicateResult.exceptionOrNull()?.message?.contains("Ya existe") == true)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_invalidChars_fails() = runTest {
+        val viewModel = createViewModel()
+
+        val result = viewModel.createAndSwitchWorkspace("bad/name?*")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("inválidos") == true)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_blankName_fails() = runTest {
+        val viewModel = createViewModel()
+
+        val result = viewModel.createAndSwitchWorkspace("   ")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("vacío") == true)
+    }
+
+    @Test
+    fun testLoadWorkspaceSummaries_updatesState() = runTest {
+        val viewModel = createViewModel()
+        viewModel.createAndSwitchWorkspace("Space 1")
+        viewModel.createAndSwitchWorkspace("Space 2")
+
+        viewModel.loadWorkspaceSummaries()
+
+        val summaries = viewModel.workspaceSummaries.value
+        assertTrue(summaries.size >= 2)
+        val activeSummary = summaries.find { it.workspace.name == "Space 2" }
+        assertNotNull(activeSummary)
+        assertTrue(activeSummary?.isActive == true)
+    }
 }
 
 
