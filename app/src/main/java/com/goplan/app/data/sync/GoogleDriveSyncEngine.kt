@@ -268,6 +268,73 @@ class GoogleDriveSyncEngine(
         return "$markerPrefix $body$tagsPart$idPart"
     }
 
+    suspend fun syncAllWorkspaces(): SyncResult {
+        val account = authManager.signedInAccount.value
+            ?: return SyncResult.Error("No hay cuenta de Google vinculada")
+
+        return withContext(ioDispatcher) {
+            try {
+                val adapter = customAdapter ?: run {
+                    val drive = driveServiceProvider?.invoke(account) ?: authManager.getDriveService(account)
+                    GoogleApiDriveServiceAdapter(drive)
+                }
+
+                // 1. Root GoPlan folder
+                var goPlanFolder = adapter.findFolder("GoPlan", null)
+                if (goPlanFolder == null) {
+                    goPlanFolder = adapter.createFolder("GoPlan", null)
+                }
+
+                // 2. Discover remote workspaces in GoPlan folder
+                val remoteItems = adapter.listFiles(goPlanFolder.id)
+                val remoteFolders = remoteItems.filter {
+                    it.mimeType == "application/vnd.google-apps.folder" ||
+                    adapter.findFolder(it.name, goPlanFolder.id) != null
+                }
+
+                val currentLocalWorkspaces = repository.getWorkspaces().toMutableList()
+                val localNames = currentLocalWorkspaces.map { it.name }.toSet()
+
+                for (remoteFolder in remoteFolders) {
+                    if (remoteFolder.name !in localNames && remoteFolder.name != "planes") {
+                        val created = repository.createWorkspace(remoteFolder.name)
+                        currentLocalWorkspaces.add(created)
+                    }
+                }
+
+                if (currentLocalWorkspaces.isEmpty()) {
+                    return@withContext SyncResult.Success(0, 0, 0)
+                }
+
+                var totalUploaded = 0
+                var totalDownloaded = 0
+                var totalConflicts = 0
+                val errors = mutableListOf<String>()
+
+                for (workspace in currentLocalWorkspaces) {
+                    when (val res = syncWorkspace(workspace)) {
+                        is SyncResult.Success -> {
+                            totalUploaded += res.uploadedCount
+                            totalDownloaded += res.downloadedCount
+                            totalConflicts += res.conflictsCount
+                        }
+                        is SyncResult.Error -> {
+                            errors.add("${workspace.name}: ${res.message}")
+                        }
+                    }
+                }
+
+                if (errors.isNotEmpty() && totalUploaded == 0 && totalDownloaded == 0) {
+                    SyncResult.Error("Errores al sincronizar: ${errors.joinToString("; ")}")
+                } else {
+                    SyncResult.Success(totalUploaded, totalDownloaded, totalConflicts)
+                }
+            } catch (e: Exception) {
+                SyncResult.Error("Error en sincronización global: ${e.message ?: "Desconocido"}")
+            }
+        }
+    }
+
     suspend fun syncWorkspace(workspace: Workspace): SyncResult {
         val account = authManager.signedInAccount.value
             ?: return SyncResult.Error("No hay cuenta de Google vinculada")

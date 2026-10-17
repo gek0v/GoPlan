@@ -52,8 +52,11 @@ fun GoogleDriveSyncDialog(
     syncError: String?,
     syncSuccessMessage: String? = null,
     sha1Fingerprint: String = "No disponible",
+    activeWorkspaceName: String? = null,
+    totalWorkspacesCount: Int = 1,
     onSignInGoogle: () -> Unit,
     onSyncNow: () -> Unit,
+    onSyncActiveWorkspace: (() -> Unit)? = null,
     onSignOutGoogle: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -281,6 +284,13 @@ fun GoogleDriveSyncDialog(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                    if (activeWorkspaceName != null) {
+                                        Text(
+                                            text = "Espacio actual: $activeWorkspaceName ($totalWorkspacesCount ${if (totalWorkspacesCount == 1) "espacio" else "espacios"})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Text(
                                         text = "Última sincronización: ${formatSyncTimestamp(lastSyncTimestamp)}",
                                         style = MaterialTheme.typography.bodySmall,
@@ -341,7 +351,24 @@ fun GoogleDriveSyncDialog(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sincronizar ahora")
+                        Text("Sincronizar todo (Global)")
+                    }
+
+                    if (onSyncActiveWorkspace != null && activeWorkspaceName != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onSyncActiveWorkspace,
+                            enabled = !isSyncing,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudSync,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sincronizar solo '$activeWorkspaceName'")
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))

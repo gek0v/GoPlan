@@ -408,10 +408,18 @@ class WorkspaceViewModel(
         }
     }
 
+    fun syncAllWorkspaces() {
+        syncWorkspaces(onlyActive = false)
+    }
+
     fun syncActiveWorkspace() {
+        syncWorkspaces(onlyActive = true)
+    }
+
+    fun syncWorkspaces(onlyActive: Boolean = false) {
         if (_isSyncing.value) return
         val activeWs = _uiState.value.activeWorkspace
-        if (activeWs == null) {
+        if (onlyActive && activeWs == null) {
             _syncError.value = "No hay workspace activo seleccionado"
             return
         }
@@ -426,7 +434,13 @@ class WorkspaceViewModel(
             _syncError.value = null
             _syncSuccessMessage.value = null
             try {
-                when (val result = engine.syncWorkspace(activeWs)) {
+                val result = if (onlyActive) {
+                    engine.syncWorkspace(activeWs!!)
+                } else {
+                    engine.syncAllWorkspaces()
+                }
+
+                when (result) {
                     is SyncResult.Success -> {
                         _lastSyncTimestamp.value = System.currentTimeMillis()
                         val parts = mutableListOf<String>()
@@ -434,9 +448,23 @@ class WorkspaceViewModel(
                         if (result.downloadedCount > 0) parts.add("${result.downloadedCount} descargados")
                         if (result.conflictsCount > 0) parts.add("${result.conflictsCount} conflictos")
                         val summary = if (parts.isNotEmpty()) " (${parts.joinToString(", ")})" else ""
-                        _syncSuccessMessage.value = "Sincronización completada$summary"
+
+                        val allWorkspaces = workspaceRepository.getWorkspaces()
+                        _uiState.update { it.copy(workspaces = allWorkspaces) }
+
+                        val prefix = if (onlyActive) {
+                            "Sincronización completada para '${activeWs?.name}'"
+                        } else {
+                            "Sincronización completada (Global: ${allWorkspaces.size} espacios)"
+                        }
+
+                        _syncSuccessMessage.value = "$prefix$summary"
                         _syncError.value = null
-                        loadWorkspaceData(activeWs)
+
+                        val currentActive = _uiState.value.activeWorkspace
+                        if (currentActive != null) {
+                            loadWorkspaceData(currentActive)
+                        }
                     }
                     is SyncResult.Error -> {
                         _syncError.value = result.message

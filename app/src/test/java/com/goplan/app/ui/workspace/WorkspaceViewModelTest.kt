@@ -528,6 +528,40 @@ class WorkspaceViewModelTest {
     }
 
     @Test
+    fun testSyncAllWorkspaces_success_updatesTimestampAndRefreshesWorkspaces() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val adapter = FakeDriveServiceAdapter()
+        val syncEngine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = authManager,
+            parser = parser,
+            customAdapter = adapter,
+            ioDispatcher = testDispatcher
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            syncEngine = syncEngine,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.syncAllWorkspaces()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertNotNull(viewModel.lastSyncTimestamp.value)
+        assertNull(viewModel.syncError.value)
+        assertNotNull(viewModel.syncSuccessMessage.value)
+        assertTrue(viewModel.syncSuccessMessage.value!!.contains("Global"))
+    }
+
+    @Test
     fun testSyncActiveWorkspace_error_updatesSyncError() = runTest {
         val account = GoogleSignInAccount.createDefault()
         val authManager = GoogleDriveAuthManager(

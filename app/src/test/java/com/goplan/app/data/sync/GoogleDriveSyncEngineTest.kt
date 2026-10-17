@@ -33,10 +33,15 @@ class GoogleDriveSyncEngineTest {
     private lateinit var syncEngine: GoogleDriveSyncEngine
 
     private class FakeDriveServiceAdapter : DriveServiceAdapter {
-        val folders = mutableListOf<RemoteFileInfo>()
+        val folders = mutableListOf<FakeFolder>()
         val files = mutableListOf<FakeDriveFile>()
         private var idCounter = 1
         var throwOnUpload = false
+
+        data class FakeFolder(
+            val info: RemoteFileInfo,
+            val parentId: String?
+        )
 
         data class FakeDriveFile(
             val info: RemoteFileInfo,
@@ -45,17 +50,23 @@ class GoogleDriveSyncEngineTest {
         )
 
         override fun findFolder(name: String, parentId: String?): RemoteFileInfo? {
-            return folders.firstOrNull { it.name == name }
+            return folders.firstOrNull { it.info.name == name && (parentId == null || it.parentId == parentId) }?.info
         }
 
         override fun createFolder(name: String, parentId: String?): RemoteFileInfo {
-            val folder = RemoteFileInfo(id = "folder-${idCounter++}", name = name)
-            folders.add(folder)
+            val folder = RemoteFileInfo(
+                id = "folder-${idCounter++}",
+                name = name,
+                mimeType = "application/vnd.google-apps.folder"
+            )
+            folders.add(FakeFolder(folder, parentId))
             return folder
         }
 
         override fun listFiles(folderId: String): List<RemoteFileInfo> {
-            return files.filter { it.parentId == folderId }.map { it.info }
+            val childFolders = folders.filter { it.parentId == folderId }.map { it.info }
+            val childFiles = files.filter { it.parentId == folderId }.map { it.info }
+            return childFolders + childFiles
         }
 
         override fun downloadFile(fileId: String): String {
@@ -503,5 +514,87 @@ class GoogleDriveSyncEngineTest {
         assertTrue(result is SyncResult.Error)
         val error = result as SyncResult.Error
         assertEquals("Simulated network error", error.message)
+    }
+
+    @Test
+    fun syncAllWorkspaces_whenUnauthenticated_returnsError() = runTest {
+        val auth = GoogleDriveAuthManager(context = null)
+        val engine = GoogleDriveSyncEngine(repository, auth, parser)
+        val result = engine.syncAllWorkspaces()
+
+        assertTrue(result is SyncResult.Error)
+        val error = result as SyncResult.Error
+        assertEquals("No hay cuenta de Google vinculada", error.message)
+    }
+
+    @Test
+    fun syncAllWorkspaces_withMultipleLocalWorkspaces_syncsAllWorkspaces() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val auth = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val fakeAdapter = FakeDriveServiceAdapter()
+        val engine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = auth,
+            parser = parser,
+            customAdapter = fakeAdapter,
+            ioDispatcher = Dispatchers.Unconfined
+        )
+
+        val ws1 = repository.createWorkspace("Alpha")
+        val ws2 = repository.createWorkspace("Beta")
+        repository.saveContextContent(ws1, "# Alpha Context")
+        repository.saveContextContent(ws2, "# Beta Context")
+
+        val result = engine.syncAllWorkspaces()
+        assertTrue(result is SyncResult.Success)
+        val success = result as SyncResult.Success
+        // Both CONTEXT.md and TODO.md uploaded for each workspace: 2 * 2 = 4
+        assertEquals(4, success.uploadedCount)
+
+        val goPlanFolder = fakeAdapter.findFolder("GoPlan", null)
+        assertNotNull(goPlanFolder)
+        assertNotNull(fakeAdapter.findFolder("Alpha", goPlanFolder?.id))
+        assertNotNull(fakeAdapter.findFolder("Beta", goPlanFolder?.id))
+    }
+
+    @Test
+    fun syncAllWorkspaces_discoversRemoteWorkspace_createsAndSyncsLocally() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val auth = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val fakeAdapter = FakeDriveServiceAdapter()
+        val engine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = auth,
+            parser = parser,
+            customAdapter = fakeAdapter,
+            ioDispatcher = Dispatchers.Unconfined
+        )
+
+        // Remote has GoPlan/RemoteProject with CONTEXT.md and TODO.md
+        val goPlanFolder = fakeAdapter.createFolder("GoPlan", null)
+        val remoteWsFolder = fakeAdapter.createFolder("RemoteProject", goPlanFolder.id)
+        fakeAdapter.uploadFile("CONTEXT.md", remoteWsFolder.id, "# Remote Context Content", "text/markdown")
+        fakeAdapter.uploadFile("TODO.md", remoteWsFolder.id, "- [ ] Remote Idea #remote", "text/markdown")
+
+        // Local has only "LocalOnly"
+        val localOnly = repository.createWorkspace("LocalOnly")
+        repository.saveContextContent(localOnly, "# Local Context")
+
+        val result = engine.syncAllWorkspaces()
+        assertTrue(result is SyncResult.Success)
+
+        // Verify RemoteProject was discovered and created locally
+        val allLocalWorkspaces = repository.getWorkspaces()
+        val remoteCreated = allLocalWorkspaces.firstOrNull { it.name == "RemoteProject" }
+        assertNotNull(remoteCreated)
+        assertEquals("# Remote Context Content", repository.getContextContent(remoteCreated!!))
+        val todoDoc = repository.getTodoDocument(remoteCreated)
+        assertTrue(todoDoc.lines.any { it is TodoLine.Task && it.idea.title.contains("Remote Idea") })
     }
 }
