@@ -143,9 +143,43 @@ fun GoogleDriveSyncDialog(
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "1. Habilita 'Google Drive API' en tu Google Cloud Console.\n" +
-                                        "2. En 'Pantalla de consentimiento OAuth', añade tu correo como Usuario de Prueba (Test User).\n" +
-                                        "3. Crea una credencial 'ID de cliente de OAuth 2.0' (Android) con:",
+                                text = "Para conectar Google Drive en desarrollo debes configurar tu proyecto en Google Cloud Console:\n\n" +
+                                        "1. Habilitar la API 'Google Drive API'.\n" +
+                                        "2. En 'Pantalla de consentimiento OAuth' -> 'Usuarios de prueba', añade el correo con el que iniciarás sesión.\n" +
+                                        "3. En 'Permisos' (Scopes), añade 'drive.file':",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Permiso / Scope:", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        text = "https://www.googleapis.com/auth/drive.file",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString("https://www.googleapis.com/auth/drive.file"))
+                                        Toast.makeText(context, "Scope copiado", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text("Copiar", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "4. En 'Credenciales' -> Crear 'ID de cliente de OAuth 2.0' (Android) con:",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

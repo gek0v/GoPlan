@@ -53,7 +53,7 @@ class GoogleDriveAuthManager(
         val client = clientProvider?.invoke(ctx) ?: run {
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
-                .requestScopes(Scope(DriveScopes.DRIVE))
+                .requestScopes(Scope(DriveScopes.DRIVE_FILE))
                 .build()
             GoogleSignIn.getClient(ctx, gso)
         }
@@ -66,13 +66,12 @@ class GoogleDriveAuthManager(
         }
         return try {
             val task = signInResultExtractor?.invoke(data) ?: GoogleSignIn.getSignedInAccountFromIntent(data)
-            if (task.isSuccessful && task.result != null) {
-                val account = task.result
+            val account = task.getResult(ApiException::class.java)
+            if (account != null) {
                 _signedInAccount.value = account
                 Result.success(account)
             } else {
-                val exception = task.exception ?: Exception("Google sign in failed or was cancelled")
-                Result.failure(formatSignInException(exception))
+                Result.failure(IllegalStateException("No se pudo obtener la cuenta de Google"))
             }
         } catch (e: Throwable) {
             Result.failure(formatSignInException(e))
@@ -82,7 +81,7 @@ class GoogleDriveAuthManager(
     fun getDriveService(account: GoogleSignInAccount): Drive {
         val ctx = context ?: throw IllegalStateException("Context is required to create Drive service")
         val credential = GoogleAccountCredential.usingOAuth2(
-            ctx, setOf(DriveScopes.DRIVE)
+            ctx, setOf(DriveScopes.DRIVE_FILE, DriveScopes.DRIVE)
         ).apply {
             selectedAccount = account.account
         }
@@ -113,7 +112,7 @@ class GoogleDriveAuthManager(
             val ctx = context ?: return false
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
-                .requestScopes(Scope(DriveScopes.DRIVE))
+                .requestScopes(Scope(DriveScopes.DRIVE_FILE))
                 .build()
             clientProvider?.invoke(ctx) ?: GoogleSignIn.getClient(ctx, gso)
             true
@@ -131,14 +130,20 @@ class GoogleDriveAuthManager(
                 val statusCode = apiException.statusCode
                 val statusMessage = CommonStatusCodes.getStatusCodeString(statusCode)
                 if (statusCode == 10 || statusCode == CommonStatusCodes.DEVELOPER_ERROR) {
-                    val msg = "Error 10 (DEVELOPER_ERROR): Falta registrar la huella SHA-1 en Google Cloud Console para el paquete 'com.goplan.app', o añadir tu correo como Test User."
+                    val msg = "Error 10 (DEVELOPER_ERROR): Falta autorizar la app en Google Cloud Console. Revisa:\n" +
+                            "1. Añade tu correo a 'Usuarios de prueba' (Test Users) en la Pantalla de consentimiento OAuth.\n" +
+                            "2. Verifica que el ID de cliente Android tenga el paquete 'com.goplan.app' y la huella SHA-1.\n" +
+                            "3. Asegúrate de que 'Google Drive API' esté habilitada y añade el permiso '.../auth/drive.file'."
                     return IllegalStateException(msg, e)
                 }
                 return IllegalStateException("Google Sign-In falló [$statusCode: $statusMessage]: ${apiException.message ?: ""}", e)
             }
             val msg = e.message ?: ""
             if (msg.contains("10:") || msg.contains("10 :") || msg.contains("DEVELOPER_ERROR")) {
-                val formatted = "Error 10 (DEVELOPER_ERROR): Falta registrar la huella SHA-1 en Google Cloud Console para el paquete 'com.goplan.app', o añadir tu correo como Test User."
+                val formatted = "Error 10 (DEVELOPER_ERROR): Falta autorizar la app en Google Cloud Console. Revisa:\n" +
+                        "1. Añade tu correo a 'Usuarios de prueba' (Test Users) en la Pantalla de consentimiento OAuth.\n" +
+                        "2. Verifica que el ID de cliente Android tenga el paquete 'com.goplan.app' y la huella SHA-1.\n" +
+                        "3. Asegúrate de que 'Google Drive API' esté habilitada y añade el permiso '.../auth/drive.file'."
                 return IllegalStateException(formatted, e)
             }
             return e
