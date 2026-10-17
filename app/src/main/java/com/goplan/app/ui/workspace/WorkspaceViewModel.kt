@@ -14,6 +14,10 @@ import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.data.sync.GoogleDriveAuthManager
 import com.goplan.app.data.sync.GoogleDriveSyncEngine
 import com.goplan.app.data.sync.model.SyncResult
+import com.goplan.app.data.update.AppUpdateManager
+import com.goplan.app.data.update.UpdateCheckResult
+import com.goplan.app.data.update.UpdateDownloadState
+import com.goplan.app.data.update.UpdateInfo
 import com.goplan.app.domain.parser.GeminiPlanParser
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
@@ -50,6 +54,7 @@ class WorkspaceViewModel(
     private val ktorServerManager: KtorServerManager? = null,
     private val syncEngine: GoogleDriveSyncEngine? = null,
     private val authManager: GoogleDriveAuthManager? = null,
+    private val appUpdateManager: AppUpdateManager? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
@@ -73,6 +78,19 @@ class WorkspaceViewModel(
     private val _syncSuccessMessage = MutableStateFlow<String?>(null)
     val syncSuccessMessage: StateFlow<String?> = _syncSuccessMessage.asStateFlow()
 
+    // OTA & Update states
+    private val _updateCheckResult = MutableStateFlow<UpdateCheckResult?>(null)
+    val updateCheckResult: StateFlow<UpdateCheckResult?> = _updateCheckResult.asStateFlow()
+
+    private val _updateDownloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
+    val updateDownloadState: StateFlow<UpdateDownloadState> = _updateDownloadState.asStateFlow()
+
+    private val _showUpdateDialog = MutableStateFlow(false)
+    val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
+    private val _isCheckingUpdate = MutableStateFlow(false)
+    val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate.asStateFlow()
+
     fun toggleServer(enable: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             if (enable) {
@@ -83,10 +101,63 @@ class WorkspaceViewModel(
         }
     }
 
+    fun checkForUpdates(silent: Boolean = false) {
+        val manager = appUpdateManager ?: return
+        viewModelScope.launch(ioDispatcher) {
+            _isCheckingUpdate.value = true
+            val result = manager.checkForUpdates()
+            _updateCheckResult.value = result
+            _isCheckingUpdate.value = false
+            if (result is UpdateCheckResult.UpdateAvailable) {
+                _showUpdateDialog.value = true
+            } else if (!silent && result is UpdateCheckResult.UpToDate) {
+                _showUpdateDialog.value = false
+            }
+        }
+    }
+
+    fun downloadAndInstallUpdate(updateInfo: UpdateInfo) {
+        val manager = appUpdateManager ?: return
+        viewModelScope.launch(ioDispatcher) {
+            _updateDownloadState.value = UpdateDownloadState.Downloading(0f, 0L, updateInfo.apkSize)
+            val result = manager.downloadUpdate(updateInfo) { progress, downloaded, total ->
+                _updateDownloadState.value = UpdateDownloadState.Downloading(progress, downloaded, total)
+            }
+            if (result.isSuccess) {
+                val apkFile = result.getOrThrow()
+                _updateDownloadState.value = UpdateDownloadState.ReadyToInstall(apkFile.absolutePath)
+                manager.promptInstall(apkFile)
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: "Error al descargar la actualización"
+                _updateDownloadState.value = UpdateDownloadState.Error(errorMsg)
+            }
+        }
+    }
+
+    fun installDownloadedApk(apkFile: File) {
+        appUpdateManager?.promptInstall(apkFile)
+    }
+
+    fun openUpdateDialog() {
+        if (_updateCheckResult.value is UpdateCheckResult.UpdateAvailable) {
+            _showUpdateDialog.value = true
+        } else {
+            checkForUpdates(silent = false)
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _showUpdateDialog.value = false
+        if (_updateDownloadState.value is UpdateDownloadState.Error) {
+            _updateDownloadState.value = UpdateDownloadState.Idle
+        }
+    }
+
     private val tagRegex = Regex("""(?<=^|\s)#([a-zA-Z0-9_-]+)""")
 
     init {
         loadInitialData()
+        checkForUpdates(silent = true)
         viewModelScope.launch(ioDispatcher) {
             workspaceRepository.workspaceChangesFlow.collect { changedWorkspaceId ->
                 val currentActive = _uiState.value.activeWorkspace
@@ -467,6 +538,7 @@ class WorkspaceViewModel(
             ktorServerManager: KtorServerManager? = null,
             syncEngine: GoogleDriveSyncEngine? = null,
             authManager: GoogleDriveAuthManager? = null,
+            appUpdateManager: AppUpdateManager? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -478,6 +550,7 @@ class WorkspaceViewModel(
                     ktorServerManager = ktorServerManager,
                     syncEngine = syncEngine,
                     authManager = authManager,
+                    appUpdateManager = appUpdateManager,
                     ioDispatcher = ioDispatcher
                 ) as T
             }

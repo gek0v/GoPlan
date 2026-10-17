@@ -16,6 +16,7 @@ import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
+import com.goplan.app.data.update.AppUpdateManager
 import kotlinx.serialization.json.Json
 import java.io.FileNotFoundException
 
@@ -23,6 +24,7 @@ fun Application.configureServer(
     repository: WorkspaceRepository,
     preferencesManager: PreferencesManager,
     agentExportManager: AgentExportManager? = null,
+    appUpdateManager: AppUpdateManager? = null,
     getIpAddress: () -> String = { "127.0.0.1" },
     port: Int = 8080
 ) {
@@ -87,6 +89,7 @@ fun Application.configureServer(
             repository = repository,
             preferencesManager = preferencesManager,
             agentExportManager = exportManager,
+            appUpdateManager = appUpdateManager,
             getIpAddress = getIpAddress,
             port = port
         )

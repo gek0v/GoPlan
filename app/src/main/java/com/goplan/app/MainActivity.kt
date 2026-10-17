@@ -146,7 +146,8 @@ class MainActivity : ComponentActivity() {
                 parser = app.todoMarkdownParser,
                 ktorServerManager = app.ktorServerManager,
                 syncEngine = app.googleDriveSyncEngine,
-                authManager = app.googleDriveAuthManager
+                authManager = app.googleDriveAuthManager,
+                appUpdateManager = app.appUpdateManager
             )
         )
 

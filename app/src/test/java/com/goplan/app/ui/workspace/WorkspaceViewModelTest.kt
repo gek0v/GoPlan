@@ -11,6 +11,11 @@ import com.goplan.app.data.sync.DriveServiceAdapter
 import com.goplan.app.data.sync.GoogleDriveAuthManager
 import com.goplan.app.data.sync.GoogleDriveSyncEngine
 import com.goplan.app.data.sync.model.RemoteFileInfo
+import com.goplan.app.data.update.AppUpdateManager
+import com.goplan.app.data.update.ReleaseApiClient
+import com.goplan.app.data.update.UpdateCheckResult
+import com.goplan.app.data.update.UpdateDownloadState
+import com.goplan.app.data.update.UpdateInfo
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
@@ -580,6 +585,42 @@ class WorkspaceViewModelTest {
         assertNull(viewModel.signedInAccount.value)
         assertNull(viewModel.syncError.value)
         assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testCheckForUpdates_availableShowsDialog() = runTest {
+        val mockClient = object : ReleaseApiClient {
+            override suspend fun fetchLatestRelease(): String = """
+                {
+                  "tag_name": "v9.9.9",
+                  "name": "Super release",
+                  "body": "Amazing features",
+                  "assets": [{ "name": "app.apk", "browser_download_url": "https://example.com/app.apk", "size": 12345 }]
+                }
+            """.trimIndent()
+            override suspend fun downloadFile(url: String, destinationFile: File, onProgress: (Float, Long, Long) -> Unit) {}
+        }
+        val updateManager = AppUpdateManager(
+            context = null,
+            apiClient = mockClient,
+            ioDispatcher = testDispatcher,
+            cacheDirProvider = { tempFolder.newFolder("update_vm_test") }
+        )
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            appUpdateManager = updateManager,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.checkForUpdates(silent = false)
+
+        assertTrue(viewModel.updateCheckResult.value is UpdateCheckResult.UpdateAvailable)
+        assertTrue(viewModel.showUpdateDialog.value)
+
+        viewModel.dismissUpdateDialog()
+        assertFalse(viewModel.showUpdateDialog.value)
     }
 }
 

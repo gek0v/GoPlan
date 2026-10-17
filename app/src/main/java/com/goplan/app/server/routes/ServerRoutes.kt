@@ -37,6 +37,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import kotlinx.coroutines.flow.firstOrNull
+import com.goplan.app.data.update.AppUpdateManager
 import com.goplan.app.server.ui.getWebDashboardHtml
 import java.io.File
 
@@ -44,6 +45,7 @@ fun Route.registerServerRoutes(
     repository: WorkspaceRepository,
     preferencesManager: PreferencesManager,
     agentExportManager: AgentExportManager,
+    appUpdateManager: AppUpdateManager? = null,
     getIpAddress: () -> String,
     port: Int
 ) {
@@ -324,6 +326,49 @@ fun Route.registerServerRoutes(
                     ApiResponse(success = false, message = "Invalid export type. Supported types: zip, md")
                 )
             }
+        }
+    }
+
+    // 8. POST /api/system/update - Direct APK upload via Wi-Fi / Local PC
+    post("/api/system/update") {
+        val bytes = try {
+            call.receive<ByteArray>()
+        } catch (e: Exception) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                ApiResponse(success = false, message = "Error leyendo payload binario del APK: ${e.message}")
+            )
+            return@post
+        }
+
+        if (bytes.size < 4 || !AppUpdateManager.isValidApkHeader(bytes)) {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                ApiResponse(
+                    success = false,
+                    message = "El archivo recibido no es un APK válido (cabecera ZIP/APK inválida)."
+                )
+            )
+            return@post
+        }
+
+        val result = appUpdateManager?.handleIncomingApk(bytes)
+        if (result != null && result.isFailure) {
+            call.respond(
+                HttpStatusCode.InternalServerError,
+                ApiResponse(
+                    success = false,
+                    message = "Error al procesar el archivo APK: ${result.exceptionOrNull()?.message}"
+                )
+            )
+        } else {
+            call.respond(
+                HttpStatusCode.OK,
+                ApiResponse(
+                    success = true,
+                    message = "APK recibido con éxito (${bytes.size} bytes). Abriendo instalador en el dispositivo..."
+                )
+            )
         }
     }
 }

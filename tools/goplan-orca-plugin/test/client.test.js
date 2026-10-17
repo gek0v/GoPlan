@@ -23,7 +23,7 @@ describe('GoPlanClient REST Client', () => {
       };
     };
 
-    const client = new GoPlanClient({ fetchFn: mockFetch });
+    const client = new GoPlanClient({ serverUrl: 'http://127.0.0.1:8080', fetchFn: mockFetch });
     const status = await client.getStatus();
     assert.deepStrictEqual(status, mockStatus);
   });
@@ -318,5 +318,48 @@ describe('GoPlanClient REST Client', () => {
         return true;
       }
     );
+  });
+
+  it('uploads valid APK buffer to /api/system/update', async () => {
+    const validApk = Buffer.from([0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]);
+    let capturedUrl;
+    let capturedOpts;
+
+    const mockFetch = async (url, opts) => {
+      capturedUrl = url;
+      capturedOpts = opts;
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ success: true, message: 'APK recibido con éxito' })
+      };
+    };
+
+    const client = new GoPlanClient({ serverUrl: 'http://127.0.0.1:8080', fetchFn: mockFetch });
+    const result = await client.uploadApkUpdate(validApk);
+
+    assert.strictEqual(capturedUrl, 'http://127.0.0.1:8080/api/system/update');
+    assert.strictEqual(capturedOpts.method, 'POST');
+    assert.strictEqual(capturedOpts.headers['Content-Type'], 'application/vnd.android.package-archive');
+    assert.strictEqual(result.success, true);
+    assert(result.message.includes('APK recibido'));
+  });
+
+  it('rejects invalid APK bytes without making network request', async () => {
+    let called = false;
+    const mockFetch = async () => {
+      called = true;
+      return { ok: true, json: async () => ({}) };
+    };
+
+    const client = new GoPlanClient({ fetchFn: mockFetch });
+    const invalidApk = Buffer.from([0x00, 0x01, 0x02, 0x03]);
+
+    await assert.rejects(
+      async () => client.uploadApkUpdate(invalidApk),
+      /Invalid APK header/
+    );
+    assert.strictEqual(called, false);
   });
 });

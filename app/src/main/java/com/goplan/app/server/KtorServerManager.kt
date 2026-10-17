@@ -2,6 +2,7 @@ package com.goplan.app.server
 
 import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
+import com.goplan.app.data.update.AppUpdateManager
 import com.goplan.app.domain.export.AgentExportManager
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
@@ -16,6 +17,7 @@ class KtorServerManager(
     val repository: WorkspaceRepository,
     val preferencesManager: PreferencesManager,
     val agentExportManager: AgentExportManager? = null,
+    val appUpdateManager: AppUpdateManager? = null,
     private val ipProvider: () -> String? = { NetworkUtils.getLocalIpv4Address() }
 ) {
     private val _isRunning = MutableStateFlow(false)
@@ -53,6 +55,7 @@ class KtorServerManager(
                         repository = repository,
                         preferencesManager = preferencesManager,
                         agentExportManager = agentExportManager,
+                        appUpdateManager = appUpdateManager,
                         getIpAddress = { ipProvider() ?: "127.0.0.1" },
                         port = targetPort
                     )

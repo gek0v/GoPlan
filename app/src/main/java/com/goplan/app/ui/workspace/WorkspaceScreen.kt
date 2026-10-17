@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -59,8 +60,12 @@ import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.data.update.UpdateCheckResult
+import com.goplan.app.data.update.UpdateDownloadState
+import com.goplan.app.data.update.UpdateInfo
 import com.goplan.app.ui.server.ServerConnectionDialog
 import com.goplan.app.ui.sync.GoogleDriveSyncDialog
+import com.goplan.app.ui.update.UpdateNotificationDialog
 import com.goplan.app.ui.workspace.components.EditIdeaDialog
 import com.goplan.app.ui.workspace.components.FilterChipsRow
 import com.goplan.app.ui.workspace.components.IdeaItemRow
@@ -86,6 +91,10 @@ fun WorkspaceScreen(
     val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
     val syncError by viewModel.syncError.collectAsState()
     val syncSuccessMessage by viewModel.syncSuccessMessage.collectAsState()
+    val updateCheckResult by viewModel.updateCheckResult.collectAsState()
+    val updateDownloadState by viewModel.updateDownloadState.collectAsState()
+    val showUpdateDialog by viewModel.showUpdateDialog.collectAsState()
+    val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsState()
 
     val view = LocalView.current
     DisposableEffect(isServerRunning) {
@@ -105,6 +114,15 @@ fun WorkspaceScreen(
         syncError = syncError,
         syncSuccessMessage = syncSuccessMessage,
         sha1Fingerprint = viewModel.getAppSha1Fingerprint(),
+        updateCheckResult = updateCheckResult,
+        updateDownloadState = updateDownloadState,
+        showUpdateDialog = showUpdateDialog,
+        isCheckingUpdate = isCheckingUpdate,
+        onOpenUpdateDialog = { viewModel.openUpdateDialog() },
+        onDismissUpdateDialog = { viewModel.dismissUpdateDialog() },
+        onDownloadUpdate = { info -> viewModel.downloadAndInstallUpdate(info) },
+        onInstallDownloadedApk = { file -> viewModel.installDownloadedApk(file) },
+        onCheckForUpdatesManually = { viewModel.checkForUpdates(silent = false) },
         onSignInGoogle = onSignInGoogle,
         onSyncNow = { viewModel.syncActiveWorkspace() },
         onSignOutGoogle = { viewModel.signOutGoogle() },
@@ -141,6 +159,15 @@ fun WorkspaceScreenContent(
     syncError: String? = null,
     syncSuccessMessage: String? = null,
     sha1Fingerprint: String = "No disponible",
+    updateCheckResult: UpdateCheckResult? = null,
+    updateDownloadState: UpdateDownloadState = UpdateDownloadState.Idle,
+    showUpdateDialog: Boolean = false,
+    isCheckingUpdate: Boolean = false,
+    onOpenUpdateDialog: () -> Unit = {},
+    onDismissUpdateDialog: () -> Unit = {},
+    onDownloadUpdate: (UpdateInfo) -> Unit = {},
+    onInstallDownloadedApk: (java.io.File) -> Unit = {},
+    onCheckForUpdatesManually: () -> Unit = {},
     onSignInGoogle: () -> Unit = {},
     onSyncNow: () -> Unit = {},
     onSignOutGoogle: () -> Unit = {},
@@ -289,6 +316,17 @@ fun WorkspaceScreenContent(
                             contentDescription = "Sincronización con Google Drive",
                             tint = tint
                         )
+                    }
+
+                    // In-App update available badge/action
+                    if (updateCheckResult is UpdateCheckResult.UpdateAvailable) {
+                        IconButton(onClick = onOpenUpdateDialog) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = "Actualización disponible",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
 
                     // Server connection action
@@ -470,7 +508,9 @@ fun WorkspaceScreenContent(
             isRunning = isServerRunning,
             serverUrl = serverUrl,
             onToggleServer = onToggleServer,
-            onDismiss = { showServerDialog = false }
+            onDismiss = { showServerDialog = false },
+            onCheckUpdates = onCheckForUpdatesManually,
+            isCheckingUpdates = isCheckingUpdate
         )
     }
 
@@ -486,6 +526,16 @@ fun WorkspaceScreenContent(
             onSyncNow = onSyncNow,
             onSignOutGoogle = onSignOutGoogle,
             onDismiss = { showSyncDialog = false }
+        )
+    }
+
+    if (showUpdateDialog && updateCheckResult is UpdateCheckResult.UpdateAvailable) {
+        UpdateNotificationDialog(
+            updateInfo = updateCheckResult.updateInfo,
+            downloadState = updateDownloadState,
+            onDismissRequest = onDismissUpdateDialog,
+            onDownloadClick = onDownloadUpdate,
+            onInstallClick = onInstallDownloadedApk
         )
     }
 }
