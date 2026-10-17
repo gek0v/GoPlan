@@ -95,6 +95,25 @@ fun ServerConnectionDialog(
                                 ),
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
+                            Text(
+                                text = "Abre este enlace en el navegador web de tu PC para acceder al panel de control de GoPlan:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                            )
+                            val isLocalhost = serverUrl?.contains("127.0.0.1") == true || serverUrl?.contains("localhost") == true
+                            if (isLocalhost) {
+                                Text(
+                                    text = "Aviso: No se detectó IP Wi-Fi activa. Para conectar desde un PC, conecta ambos a la misma red Wi-Fi o activa la Zona Wi-Fi del móvil.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                Text(
+                                    text = "Tu PC y este teléfono deben estar conectados a la misma red Wi-Fi.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                )
+                            }
                             OutlinedButton(
                                 onClick = {
                                     val urlToCopy = serverUrl ?: ""

@@ -139,20 +139,6 @@ class MainActivity : ComponentActivity() {
     private fun MainContent() {
         val navController = rememberNavController()
 
-        val googleSignInLauncher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-            val res = app.googleDriveAuthManager.handleSignInResult(result.data)
-            if (res.isSuccess) {
-                val account = res.getOrNull()
-                val name = account?.email ?: account?.displayName ?: "Google"
-                Toast.makeText(this@MainActivity, "Sesión iniciada como $name", Toast.LENGTH_SHORT).show()
-            } else {
-                val errorMsg = res.exceptionOrNull()?.message ?: "Error al iniciar sesión"
-                Toast.makeText(this@MainActivity, "Error en Google Sign-In: $errorMsg", Toast.LENGTH_SHORT).show()
-            }
-        }
-
         val workspaceViewModel: WorkspaceViewModel = viewModel(
             factory = WorkspaceViewModel.provideFactory(
                 repository = app.workspaceRepository,
@@ -163,6 +149,22 @@ class MainActivity : ComponentActivity() {
                 authManager = app.googleDriveAuthManager
             )
         )
+
+        val googleSignInLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val res = app.googleDriveAuthManager.handleSignInResult(result.data)
+            if (res.isSuccess) {
+                val account = res.getOrNull()
+                val name = account?.email ?: account?.displayName ?: "Google"
+                Toast.makeText(this@MainActivity, "Sesión iniciada como $name", Toast.LENGTH_SHORT).show()
+                workspaceViewModel.clearSyncMessages()
+            } else {
+                val errorMsg = res.exceptionOrNull()?.message ?: "Error al iniciar sesión"
+                workspaceViewModel.setSyncError(errorMsg)
+                Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+            }
+        }
         val workspaceUiState by workspaceViewModel.uiState.collectAsState()
 
         if (showGeminiLinkDialog) {

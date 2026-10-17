@@ -178,4 +178,26 @@ class KtorServerManagerTest {
             connection.disconnect()
         }
     }
+
+    @Test
+    fun testServerRunning_servesWebDashboardAtRoot() {
+        val port = 18090
+        val result = serverManager.start(port = port)
+        assertTrue(result.isSuccess)
+
+        val url = URL("http://127.0.0.1:$port/")
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 3000
+        connection.readTimeout = 3000
+
+        try {
+            val responseCode = connection.responseCode
+            val responseBody = connection.inputStream.bufferedReader().use(BufferedReader::readText)
+            assertEquals(200, responseCode)
+            assertTrue(responseBody.contains("GoPlan - Panel de Control Local"))
+        } finally {
+            connection.disconnect()
+        }
+    }
 }

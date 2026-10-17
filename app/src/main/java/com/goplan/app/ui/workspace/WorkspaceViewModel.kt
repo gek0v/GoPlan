@@ -392,6 +392,14 @@ class WorkspaceViewModel(
         _syncSuccessMessage.value = null
     }
 
+    fun setSyncError(error: String?) {
+        _syncError.value = error
+    }
+
+    fun getAppSha1Fingerprint(): String {
+        return authManager?.getSha1Fingerprint() ?: "No disponible"
+    }
+
     fun loadWorkspace(workspace: Workspace) {
         loadWorkspaceData(workspace)
     }

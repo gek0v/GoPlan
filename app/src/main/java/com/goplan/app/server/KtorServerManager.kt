@@ -116,7 +116,10 @@ class KtorServerManager(
 
     private fun isPortAvailable(port: Int): Boolean {
         return try {
-            ServerSocket(port).use { true }
+            ServerSocket(port).apply {
+                reuseAddress = true
+            }.close()
+            true
         } catch (_: Throwable) {
             false
         }

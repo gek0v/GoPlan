@@ -331,4 +331,22 @@ class KtorServerRoutesTest {
         assertFalse(errorDto.success)
         assertNotNull(errorDto.message)
     }
+
+    @Test
+    fun testWebDashboardServedAtRootAndIndexHtml() = testApplication {
+        setupServer()
+
+        val rootResponse = client.get("/")
+        assertEquals(HttpStatusCode.OK, rootResponse.status)
+        assertTrue(rootResponse.headers[HttpHeaders.ContentType]?.contains("text/html") == true)
+        val rootHtml = rootResponse.bodyAsText()
+        assertTrue(rootHtml.contains("GoPlan - Panel de Control Local"))
+        assertTrue(rootHtml.contains("Captura Rápida desde el PC"))
+
+        val indexResponse = client.get("/index.html")
+        assertEquals(HttpStatusCode.OK, indexResponse.status)
+        assertTrue(indexResponse.headers[HttpHeaders.ContentType]?.contains("text/html") == true)
+        val indexHtml = indexResponse.bodyAsText()
+        assertTrue(indexHtml.contains("GoPlan - Panel de Control Local"))
+    }
 }

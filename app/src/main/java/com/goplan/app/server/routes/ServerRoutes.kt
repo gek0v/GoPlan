@@ -37,6 +37,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import kotlinx.coroutines.flow.firstOrNull
+import com.goplan.app.server.ui.getWebDashboardHtml
 import java.io.File
 
 fun Route.registerServerRoutes(
@@ -47,6 +48,14 @@ fun Route.registerServerRoutes(
     port: Int
 ) {
     val todoParser = TodoMarkdownParser()
+
+    // 0. GET / and GET /index.html - Web Dashboard
+    get("/") {
+        call.respondText(getWebDashboardHtml(), ContentType.Text.Html)
+    }
+    get("/index.html") {
+        call.respondText(getWebDashboardHtml(), ContentType.Text.Html)
+    }
 
     // 1. GET /api/status
     get("/api/status") {

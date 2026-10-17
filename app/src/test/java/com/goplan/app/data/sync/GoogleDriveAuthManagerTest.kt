@@ -71,8 +71,27 @@ class GoogleDriveAuthManagerTest {
         val result = authManager.handleSignInResult(dummyIntent)
 
         assertTrue(result.isFailure)
-        assertEquals(apiException, result.exceptionOrNull())
+        assertEquals(apiException, result.exceptionOrNull()?.cause)
         assertNull(authManager.signedInAccount.value)
+    }
+
+    @Test
+    fun testHandleSignInResult_developerError10_providesHelpfulMessage() {
+        val devErrorException = ApiException(Status(CommonStatusCodes.DEVELOPER_ERROR, "10: "))
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            signInResultExtractor = {
+                Tasks.forException(devErrorException)
+            }
+        )
+        val dummyIntent = Intent()
+        val result = authManager.handleSignInResult(dummyIntent)
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertNotNull(ex)
+        assertTrue(ex?.message?.contains("Error 10 (DEVELOPER_ERROR)") == true)
+        assertTrue(ex?.message?.contains("com.goplan.app") == true)
     }
 
     @Test

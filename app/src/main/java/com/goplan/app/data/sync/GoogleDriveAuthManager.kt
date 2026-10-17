@@ -2,10 +2,14 @@ package com.goplan.app.data.sync
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Task
 import com.google.api.client.http.javanet.NetHttpTransport
@@ -16,6 +20,7 @@ import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.security.MessageDigest
 
 @Suppress("DEPRECATION")
 class GoogleDriveAuthManager(
@@ -67,10 +72,10 @@ class GoogleDriveAuthManager(
                 Result.success(account)
             } else {
                 val exception = task.exception ?: Exception("Google sign in failed or was cancelled")
-                Result.failure(exception)
+                Result.failure(formatSignInException(exception))
             }
         } catch (e: Throwable) {
-            Result.failure(e)
+            Result.failure(formatSignInException(e))
         }
     }
 
@@ -114,6 +119,69 @@ class GoogleDriveAuthManager(
             true
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    fun getSha1Fingerprint(): String = getAppSha1Fingerprint(context)
+
+    companion object {
+        fun formatSignInException(e: Throwable): Throwable {
+            val apiException = findApiException(e)
+            if (apiException != null) {
+                val statusCode = apiException.statusCode
+                val statusMessage = CommonStatusCodes.getStatusCodeString(statusCode)
+                if (statusCode == 10 || statusCode == CommonStatusCodes.DEVELOPER_ERROR) {
+                    val msg = "Error 10 (DEVELOPER_ERROR): Falta registrar la huella SHA-1 en Google Cloud Console para el paquete 'com.goplan.app', o añadir tu correo como Test User."
+                    return IllegalStateException(msg, e)
+                }
+                return IllegalStateException("Google Sign-In falló [$statusCode: $statusMessage]: ${apiException.message ?: ""}", e)
+            }
+            val msg = e.message ?: ""
+            if (msg.contains("10:") || msg.contains("10 :") || msg.contains("DEVELOPER_ERROR")) {
+                val formatted = "Error 10 (DEVELOPER_ERROR): Falta registrar la huella SHA-1 en Google Cloud Console para el paquete 'com.goplan.app', o añadir tu correo como Test User."
+                return IllegalStateException(formatted, e)
+            }
+            return e
+        }
+
+        private fun findApiException(e: Throwable?): ApiException? {
+            var current = e
+            while (current != null) {
+                if (current is ApiException) return current
+                current = current.cause
+            }
+            return null
+        }
+
+        fun getAppSha1Fingerprint(context: Context?): String {
+            if (context == null) return "No disponible (sin Context)"
+            return try {
+                val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    val packageInfo = context.packageManager.getPackageInfo(
+                        context.packageName,
+                        PackageManager.GET_SIGNING_CERTIFICATES
+                    )
+                    packageInfo.signingInfo?.apkContentsSigners
+                        ?: packageInfo.signingInfo?.signingCertificateHistory
+                } else {
+                    @Suppress("DEPRECATION")
+                    val packageInfo = context.packageManager.getPackageInfo(
+                        context.packageName,
+                        PackageManager.GET_SIGNATURES
+                    )
+                    @Suppress("DEPRECATION")
+                    packageInfo.signatures
+                }
+
+                val cert = signatures?.firstOrNull()?.toByteArray()
+                    ?: return "No se encontró certificado de firma"
+
+                val md = MessageDigest.getInstance("SHA-1")
+                val digest = md.digest(cert)
+                digest.joinToString(":") { String.format("%02X", it) }
+            } catch (ex: Throwable) {
+                "Error al obtener SHA-1: ${ex.message}"
+            }
         }
     }
 }

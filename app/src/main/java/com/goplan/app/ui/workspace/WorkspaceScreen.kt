@@ -3,10 +3,13 @@ package com.goplan.app.ui.workspace
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -101,6 +104,7 @@ fun WorkspaceScreen(
         lastSyncTimestamp = lastSyncTimestamp,
         syncError = syncError,
         syncSuccessMessage = syncSuccessMessage,
+        sha1Fingerprint = viewModel.getAppSha1Fingerprint(),
         onSignInGoogle = onSignInGoogle,
         onSyncNow = { viewModel.syncActiveWorkspace() },
         onSignOutGoogle = { viewModel.signOutGoogle() },
@@ -136,6 +140,7 @@ fun WorkspaceScreenContent(
     lastSyncTimestamp: Long? = null,
     syncError: String? = null,
     syncSuccessMessage: String? = null,
+    sha1Fingerprint: String = "No disponible",
     onSignInGoogle: () -> Unit = {},
     onSyncNow: () -> Unit = {},
     onSignOutGoogle: () -> Unit = {},
@@ -376,8 +381,10 @@ fun WorkspaceScreenContent(
                 }
             } else {
                 val listState = rememberLazyListState()
+                @OptIn(ExperimentalLayoutApi::class)
+                val isImeVisible = WindowInsets.isImeVisible
 
-                LaunchedEffect(uiState.ideas.size) {
+                LaunchedEffect(uiState.ideas.size, isImeVisible) {
                     if (uiState.ideas.isNotEmpty()) {
                         listState.animateScrollToItem(uiState.ideas.size - 1)
                     }
@@ -474,6 +481,7 @@ fun WorkspaceScreenContent(
             lastSyncTimestamp = lastSyncTimestamp,
             syncError = syncError,
             syncSuccessMessage = syncSuccessMessage,
+            sha1Fingerprint = sha1Fingerprint,
             onSignInGoogle = onSignInGoogle,
             onSyncNow = onSyncNow,
             onSignOutGoogle = onSignOutGoogle,
