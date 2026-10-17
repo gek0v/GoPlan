@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "goplan",
+  "displayName": "GoPlan Mobile Sync",
+  "version": "1.0.0",
+  "description": "Bi-directional synchronization between Orca/Antigravity and the GoPlan mobile app: native MCP server tools, context ingestion, idea capturing, plan syncing, and quick slash commands.",
+  "author": {
+    "name": "GoPlan Team"
+  },
+  "license": "MIT",
+  "keywords": [
+    "goplan",
+    "mobile",
+    "mcp",
+    "model-context-protocol",
+    "tasks",
+    "context",
+    "planning",
+    "todo"
+  ],
+  "suggestedPrompts": [
+    "Comprueba el estado del servidor GoPlan y el workspace activo",
+    "Lista las ideas y tareas pendientes en GoPlan",
+    "Inserta el CONTEXT.md de GoPlan en el chat",
+    "Envía una idea rápida a GoPlan: Crear sistema de alertas #notificaciones",
+    "Sincroniza e ingesta el plan actual a GoPlan y márcalo en progreso"
+  ]
+}

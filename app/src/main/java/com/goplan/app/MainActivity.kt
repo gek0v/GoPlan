@@ -7,8 +7,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,10 +62,14 @@ class MainActivity : ComponentActivity() {
     private var incomingSharedText by mutableStateOf<String?>(null)
     private var recentExpansion by mutableStateOf<RecentExpansion?>(null)
     private var showGeminiLinkDialog by mutableStateOf(false)
+    private var wasServerRunning: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState != null) {
+            wasServerRunning = savedInstanceState.getBoolean("was_server_running", false)
+        }
         if (savedInstanceState == null) {
             handleIncomingIntent(intent)
         }
@@ -73,6 +79,36 @@ class MainActivity : ComponentActivity() {
                 MainContent()
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (wasServerRunning) {
+            wasServerRunning = false
+            lifecycleScope.launch(Dispatchers.IO) {
+                app.ktorServerManager.start()
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        wasServerRunning = app.ktorServerManager.isRunning.value
+        if (wasServerRunning) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                app.ktorServerManager.stop()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        app.ktorServerManager.stop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("was_server_running", wasServerRunning || app.ktorServerManager.isRunning.value)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -107,9 +143,28 @@ class MainActivity : ComponentActivity() {
             factory = WorkspaceViewModel.provideFactory(
                 repository = app.workspaceRepository,
                 preferencesManager = app.preferencesManager,
-                parser = app.todoMarkdownParser
+                parser = app.todoMarkdownParser,
+                ktorServerManager = app.ktorServerManager,
+                syncEngine = app.googleDriveSyncEngine,
+                authManager = app.googleDriveAuthManager
             )
         )
+
+        val googleSignInLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val res = app.googleDriveAuthManager.handleSignInResult(result.data)
+            if (res.isSuccess) {
+                val account = res.getOrNull()
+                val name = account?.email ?: account?.displayName ?: "Google"
+                Toast.makeText(this@MainActivity, "Sesión iniciada como $name", Toast.LENGTH_SHORT).show()
+                workspaceViewModel.clearSyncMessages()
+            } else {
+                val errorMsg = res.exceptionOrNull()?.message ?: "Error al iniciar sesión"
+                workspaceViewModel.setSyncError(errorMsg)
+                Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+            }
+        }
         val workspaceUiState by workspaceViewModel.uiState.collectAsState()
 
         if (showGeminiLinkDialog) {
@@ -243,6 +298,18 @@ class MainActivity : ComponentActivity() {
                     },
                     onExport = {
                         showExportDialog = true
+                    },
+                    onSignInGoogle = {
+                        try {
+                            val signInIntent = app.googleDriveAuthManager.getSignInIntent()
+                            googleSignInLauncher.launch(signInIntent)
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Error al iniciar Google Sign-In: ${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 )
             }

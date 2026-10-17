@@ -3,10 +3,13 @@ package com.goplan.app.ui.workspace
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -15,8 +18,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,13 +49,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.ui.server.ServerConnectionDialog
+import com.goplan.app.ui.sync.GoogleDriveSyncDialog
 import com.goplan.app.ui.workspace.components.EditIdeaDialog
 import com.goplan.app.ui.workspace.components.FilterChipsRow
 import com.goplan.app.ui.workspace.components.IdeaItemRow
@@ -62,12 +75,40 @@ fun WorkspaceScreen(
     onPastePlan: () -> Unit,
     onCreatePlan: (Idea) -> Unit,
     onExport: () -> Unit,
+    onSignInGoogle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isServerRunning by viewModel.isServerRunning.collectAsState()
+    val serverUrl by viewModel.serverUrl.collectAsState()
+    val signedInAccount by viewModel.signedInAccount.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
+    val lastSyncTimestamp by viewModel.lastSyncTimestamp.collectAsState()
+    val syncError by viewModel.syncError.collectAsState()
+    val syncSuccessMessage by viewModel.syncSuccessMessage.collectAsState()
+
+    val view = LocalView.current
+    DisposableEffect(isServerRunning) {
+        view.keepScreenOn = isServerRunning
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     WorkspaceScreenContent(
         uiState = uiState,
+        isServerRunning = isServerRunning,
+        serverUrl = serverUrl,
+        signedInAccount = signedInAccount,
+        isSyncing = isSyncing,
+        lastSyncTimestamp = lastSyncTimestamp,
+        syncError = syncError,
+        syncSuccessMessage = syncSuccessMessage,
+        sha1Fingerprint = viewModel.getAppSha1Fingerprint(),
+        onSignInGoogle = onSignInGoogle,
+        onSyncNow = { viewModel.syncActiveWorkspace() },
+        onSignOutGoogle = { viewModel.signOutGoogle() },
+        onToggleServer = { viewModel.toggleServer(it) },
         onSwitchWorkspace = { viewModel.switchWorkspace(it) },
         onCreateWorkspace = { viewModel.createWorkspace(it) },
         onAddIdea = { viewModel.addIdea(it) },
@@ -92,6 +133,18 @@ fun WorkspaceScreen(
 @Composable
 fun WorkspaceScreenContent(
     uiState: WorkspaceUiState,
+    isServerRunning: Boolean = false,
+    serverUrl: String? = null,
+    signedInAccount: GoogleSignInAccount? = null,
+    isSyncing: Boolean = false,
+    lastSyncTimestamp: Long? = null,
+    syncError: String? = null,
+    syncSuccessMessage: String? = null,
+    sha1Fingerprint: String = "No disponible",
+    onSignInGoogle: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
+    onSignOutGoogle: () -> Unit = {},
+    onToggleServer: (Boolean) -> Unit = {},
     onSwitchWorkspace: (Workspace) -> Unit,
     onCreateWorkspace: (String) -> Unit,
     onAddIdea: (String) -> Unit,
@@ -112,6 +165,8 @@ fun WorkspaceScreenContent(
 ) {
     var workspaceDropdownExpanded by remember { mutableStateOf(false) }
     var showCreateWorkspaceDialog by remember { mutableStateOf(false) }
+    var showServerDialog by remember { mutableStateOf(false) }
+    var showSyncDialog by remember { mutableStateOf(false) }
     var newWorkspaceName by remember { mutableStateOf("") }
     var ideaToEdit by remember { mutableStateOf<Idea?>(null) }
     var ideaToDelete by remember { mutableStateOf<Idea?>(null) }
@@ -217,6 +272,34 @@ fun WorkspaceScreenContent(
                     }
                 },
                 actions = {
+                    // Google Drive sync action
+                    IconButton(onClick = { showSyncDialog = true }) {
+                        val icon = when {
+                            isSyncing -> Icons.Default.CloudSync
+                            signedInAccount != null -> Icons.Default.CloudDone
+                            else -> Icons.Default.CloudQueue
+                        }
+                        val tint = when {
+                            isSyncing -> MaterialTheme.colorScheme.primary
+                            signedInAccount != null -> Color(0xFF2E7D32)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = "Sincronización con Google Drive",
+                            tint = tint
+                        )
+                    }
+
+                    // Server connection action
+                    IconButton(onClick = { showServerDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Lan,
+                            contentDescription = "Conexión PC / Servidor Local",
+                            tint = if (isServerRunning) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Paste plan from clipboard action
                     IconButton(onClick = onPastePlan) {
                         Icon(
@@ -298,8 +381,10 @@ fun WorkspaceScreenContent(
                 }
             } else {
                 val listState = rememberLazyListState()
+                @OptIn(ExperimentalLayoutApi::class)
+                val isImeVisible = WindowInsets.isImeVisible
 
-                LaunchedEffect(uiState.ideas.size) {
+                LaunchedEffect(uiState.ideas.size, isImeVisible) {
                     if (uiState.ideas.isNotEmpty()) {
                         listState.animateScrollToItem(uiState.ideas.size - 1)
                     }
@@ -377,6 +462,30 @@ fun WorkspaceScreenContent(
                     Text("Cancelar")
                 }
             }
+        )
+    }
+
+    if (showServerDialog) {
+        ServerConnectionDialog(
+            isRunning = isServerRunning,
+            serverUrl = serverUrl,
+            onToggleServer = onToggleServer,
+            onDismiss = { showServerDialog = false }
+        )
+    }
+
+    if (showSyncDialog) {
+        GoogleDriveSyncDialog(
+            account = signedInAccount,
+            isSyncing = isSyncing,
+            lastSyncTimestamp = lastSyncTimestamp,
+            syncError = syncError,
+            syncSuccessMessage = syncSuccessMessage,
+            sha1Fingerprint = sha1Fingerprint,
+            onSignInGoogle = onSignInGoogle,
+            onSyncNow = onSyncNow,
+            onSignOutGoogle = onSignOutGoogle,
+            onDismiss = { showSyncDialog = false }
         )
     }
 }

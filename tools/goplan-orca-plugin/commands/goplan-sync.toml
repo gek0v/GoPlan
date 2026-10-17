@@ -1,0 +1,7 @@
+description = "Sincroniza e ingesta un plan generado en la app móvil GoPlan vinculándolo a su idea"
+prompt = """
+Examina la conversación o los argumentos: `{{args}}`.
+Identifica el ID de la idea objetivo y el contenido del plan Markdown a sincronizar.
+Llama a la herramienta MCP `goplan_save_plan` pasando `ideaId`, `fileName` y `content`.
+Informa al usuario de los archivos creados en GoPlan y confirma que el estado de la tarea ha pasado a `IN_PROGRESS`.
+"""

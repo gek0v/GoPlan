@@ -1,0 +1,18 @@
+description = "GoPlan mobile integration dispatcher: status, send ideas, inspect tasks, fetch context, and sync plans."
+prompt = """
+Invoca la herramienta GoPlan adecuada según los argumentos proporcionados: `{{args}}`.
+
+Acciones disponibles:
+1. Si los argumentos comienzan con 'idea' (ej. `idea Mi nueva tarea #frontend`):
+   Llama a la herramienta MCP `goplan_send_idea` con el texto proporcionado y muestra la confirmación al usuario.
+2. Si los argumentos son 'status' o están vacíos:
+   Llama a la herramienta MCP `goplan_status` y a `goplan_get_todo` para mostrar un resumen visual del estado del servidor móvil, IP, workspace activo y tareas pendientes agrupadas por estado.
+3. Si los argumentos son 'context':
+   Llama a la herramienta MCP `goplan_get_context` e inserta el contenido completo de `CONTEXT.md` en el chat para enriquecer el contexto del agente.
+4. Si los argumentos son 'todo':
+   Llama a la herramienta MCP `goplan_get_todo` y muestra las tareas organizadas.
+5. Si los argumentos comienzan con 'plan' (ej. `plan arquitectura.md`):
+   Llama a la herramienta MCP `goplan_get_plan` con el nombre de archivo especificado.
+6. Si los argumentos comienzan con 'sync':
+   Toma el plan de trabajo actual o el plan generado en la conversación y llámalo mediante `goplan_save_plan` vinculándolo a la idea correspondiente.
+"""

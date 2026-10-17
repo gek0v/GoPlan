@@ -1,0 +1,10 @@
+description = "Muestra el estado del servidor móvil GoPlan, IP, workspace activo y tareas pendientes"
+prompt = """
+Llama a la herramienta MCP `goplan_status`.
+Posteriormente llama a `goplan_get_todo` para el workspace activo.
+Presenta al usuario un resumen conciso:
+- Estado de la conexión y URL del servidor
+- Workspace activo actual
+- Recuento de tareas por estado (En progreso, Pendientes, Completadas)
+- Lista de las tareas en progreso y pendientes prioritarias
+"""

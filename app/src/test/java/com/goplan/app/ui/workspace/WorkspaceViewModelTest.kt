@@ -3,11 +3,17 @@ package com.goplan.app.ui.workspace
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.data.sync.DriveServiceAdapter
+import com.goplan.app.data.sync.GoogleDriveAuthManager
+import com.goplan.app.data.sync.GoogleDriveSyncEngine
+import com.goplan.app.data.sync.model.RemoteFileInfo
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.parser.TodoMarkdownParser
+import com.goplan.app.server.KtorServerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -21,6 +27,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -354,6 +361,225 @@ class WorkspaceViewModelTest {
         val doc = repository.getTodoDocument(activeWs)
         val tasks = doc.lines.filterIsInstance<com.goplan.app.domain.model.TodoLine.Task>()
         assertTrue(tasks.isEmpty())
+    }
+
+    @Test
+    fun testViewModelRefreshesWhenWorkspaceChangesFlowEmits() = runTest {
+        val viewModel = createViewModel()
+        val activeWs = viewModel.uiState.value.activeWorkspace!!
+        assertEquals("Default", activeWs.name)
+        assertTrue(viewModel.uiState.value.ideas.isEmpty())
+
+        // Simular que un agente o Ktor guarda una nueva idea directamente en disco via repository
+        val currentDoc = repository.getTodoDocument(activeWs)
+        val updatedDoc = parser.addIdea(currentDoc, "Idea externa recibida", setOf("reactivo"))
+        repository.saveTodoDocument(activeWs, updatedDoc)
+
+        val state = viewModel.uiState.value
+        assertEquals(1, state.ideas.size)
+        assertEquals("Idea externa recibida", state.ideas[0].title)
+        assertTrue(state.availableTags.contains("reactivo"))
+    }
+
+    @Test
+    fun testServerState_whenManagerIsNull_defaultsToFalseAndNull() = runTest {
+        val viewModel = createViewModel()
+        assertFalse(viewModel.isServerRunning.value)
+        assertNull(viewModel.serverUrl.value)
+
+        viewModel.toggleServer(true)
+        assertFalse(viewModel.isServerRunning.value)
+        assertNull(viewModel.serverUrl.value)
+
+        viewModel.toggleServer(false)
+        assertFalse(viewModel.isServerRunning.value)
+        assertNull(viewModel.serverUrl.value)
+    }
+
+    @Test
+    fun testServerState_withKtorServerManager_togglesCorrectly() = runTest {
+        val serverManager = KtorServerManager(
+            repository = repository,
+            preferencesManager = preferencesManager,
+            ipProvider = { "127.0.0.1" }
+        )
+
+        try {
+            val viewModel = WorkspaceViewModel(
+                workspaceRepository = repository,
+                preferencesManager = preferencesManager,
+                parser = parser,
+                ktorServerManager = serverManager,
+                ioDispatcher = testDispatcher
+            )
+
+            assertFalse(viewModel.isServerRunning.value)
+            assertNull(viewModel.serverUrl.value)
+
+            // Toggle server ON
+            viewModel.toggleServer(true)
+            assertTrue("Server should be running after toggleServer(true)", viewModel.isServerRunning.value)
+            assertNotNull(viewModel.serverUrl.value)
+            assertTrue(viewModel.serverUrl.value!!.startsWith("http://127.0.0.1:"))
+
+            // Toggle server OFF
+            viewModel.toggleServer(false)
+            assertFalse("Server should not be running after toggleServer(false)", viewModel.isServerRunning.value)
+            assertNull(viewModel.serverUrl.value)
+        } finally {
+            serverManager.stop()
+        }
+    }
+
+    private class FakeDriveServiceAdapter : DriveServiceAdapter {
+        val folders = mutableListOf<RemoteFileInfo>()
+        val files = mutableListOf<RemoteFileInfo>()
+        var throwError = false
+
+        override fun findFolder(name: String, parentId: String?): RemoteFileInfo? {
+            return folders.firstOrNull { it.name == name }
+        }
+
+        override fun createFolder(name: String, parentId: String?): RemoteFileInfo {
+            val f = RemoteFileInfo("folder-${folders.size + 1}", name)
+            folders.add(f)
+            return f
+        }
+
+        override fun listFiles(folderId: String): List<RemoteFileInfo> = files
+
+        override fun downloadFile(fileId: String): String = ""
+
+        override fun uploadFile(name: String, parentId: String, content: String, mimeType: String): RemoteFileInfo {
+            if (throwError) throw java.io.IOException("Simulated network failure")
+            val f = RemoteFileInfo("file-${files.size + 1}", name)
+            files.add(f)
+            return f
+        }
+
+        override fun updateFile(fileId: String, content: String): RemoteFileInfo {
+            if (throwError) throw java.io.IOException("Simulated network failure")
+            return RemoteFileInfo(fileId, "updated")
+        }
+    }
+
+    @Test
+    fun testSyncState_initialValues_whenEngineAndAuthNull() = runTest {
+        val viewModel = createViewModel()
+
+        assertNull(viewModel.signedInAccount.value)
+        assertFalse(viewModel.isSyncing.value)
+        assertNull(viewModel.lastSyncTimestamp.value)
+        assertNull(viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testSyncActiveWorkspace_whenEngineNull_setsErrorMessage() = runTest {
+        val viewModel = createViewModel()
+
+        viewModel.syncActiveWorkspace()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertEquals("Motor de sincronización no disponible", viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testSyncActiveWorkspace_success_updatesTimestampAndSuccessMessage() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val adapter = FakeDriveServiceAdapter()
+        val syncEngine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = authManager,
+            parser = parser,
+            customAdapter = adapter,
+            ioDispatcher = testDispatcher
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            syncEngine = syncEngine,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        assertEquals(account, viewModel.signedInAccount.value)
+        assertNull(viewModel.lastSyncTimestamp.value)
+
+        viewModel.syncActiveWorkspace()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertNotNull(viewModel.lastSyncTimestamp.value)
+        assertNull(viewModel.syncError.value)
+        assertNotNull(viewModel.syncSuccessMessage.value)
+        assertTrue(viewModel.syncSuccessMessage.value!!.startsWith("Sincronización completada"))
+    }
+
+    @Test
+    fun testSyncActiveWorkspace_error_updatesSyncError() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val adapter = FakeDriveServiceAdapter().apply {
+            throwError = true
+        }
+        val syncEngine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = authManager,
+            parser = parser,
+            customAdapter = adapter,
+            ioDispatcher = testDispatcher
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            syncEngine = syncEngine,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.syncActiveWorkspace()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertNotNull(viewModel.syncError.value)
+        assertEquals("Simulated network failure", viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testSignOutGoogle_clearsAccountAndSyncMessages() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        assertEquals(account, viewModel.signedInAccount.value)
+
+        viewModel.signOutGoogle()
+
+        assertNull(viewModel.signedInAccount.value)
+        assertNull(viewModel.syncError.value)
+        assertNull(viewModel.syncSuccessMessage.value)
     }
 }
 
