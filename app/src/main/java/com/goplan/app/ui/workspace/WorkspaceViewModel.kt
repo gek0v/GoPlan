@@ -78,6 +78,13 @@ class WorkspaceViewModel(
     private val _syncSuccessMessage = MutableStateFlow<String?>(null)
     val syncSuccessMessage: StateFlow<String?> = _syncSuccessMessage.asStateFlow()
 
+    private val _recoverableAuthIntent = MutableStateFlow<android.content.Intent?>(null)
+    val recoverableAuthIntent: StateFlow<android.content.Intent?> = _recoverableAuthIntent.asStateFlow()
+
+    fun clearRecoverableAuthIntent() {
+        _recoverableAuthIntent.value = null
+    }
+
     // OTA & Update states
     private val _updateCheckResult = MutableStateFlow<UpdateCheckResult?>(null)
     val updateCheckResult: StateFlow<UpdateCheckResult?> = _updateCheckResult.asStateFlow()
@@ -469,10 +476,14 @@ class WorkspaceViewModel(
                     is SyncResult.Error -> {
                         _syncError.value = result.message
                         _syncSuccessMessage.value = null
+                        if (result.throwable is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
+                            _recoverableAuthIntent.value = result.throwable.intent
+                        }
                     }
                 }
             } catch (e: Exception) {
-                _syncError.value = e.message ?: "Error desconocido al sincronizar"
+                val detail = e.localizedMessage ?: e.message ?: e.cause?.message ?: e.javaClass.simpleName
+                _syncError.value = "Error al sincronizar: $detail"
                 _syncSuccessMessage.value = null
             } finally {
                 _isSyncing.value = false

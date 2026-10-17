@@ -35,7 +35,7 @@ class GoogleApiDriveServiceAdapter(private val drive: Drive) : DriveServiceAdapt
     override fun findFolder(name: String, parentId: String?): RemoteFileInfo? {
         val escapedName = name.replace("'", "\\'")
         val query = "mimeType = 'application/vnd.google-apps.folder' and name = '$escapedName' and trashed = false" +
-                if (parentId != null) " and '$parentId' in parents" else " and 'root' in parents"
+                if (parentId != null) " and '$parentId' in parents" else ""
         val result = drive.files().list()
             .setQ(query)
             .setSpaces("drive")
@@ -43,8 +43,8 @@ class GoogleApiDriveServiceAdapter(private val drive: Drive) : DriveServiceAdapt
             .execute()
         val file = result.files?.firstOrNull() ?: return null
         return RemoteFileInfo(
-            id = file.id,
-            name = file.name,
+            id = file.id ?: "",
+            name = file.name ?: name,
             md5Checksum = file.md5Checksum,
             modifiedTimeMillis = file.modifiedTime?.value ?: 0L,
             mimeType = file.mimeType
@@ -63,8 +63,8 @@ class GoogleApiDriveServiceAdapter(private val drive: Drive) : DriveServiceAdapt
             .setFields("id, name, md5Checksum, modifiedTime, mimeType")
             .execute()
         return RemoteFileInfo(
-            id = created.id,
-            name = created.name,
+            id = created.id ?: "",
+            name = created.name ?: name,
             md5Checksum = created.md5Checksum,
             modifiedTimeMillis = created.modifiedTime?.value ?: 0L,
             mimeType = created.mimeType
@@ -80,8 +80,8 @@ class GoogleApiDriveServiceAdapter(private val drive: Drive) : DriveServiceAdapt
             .execute()
         return result.files?.map { file ->
             RemoteFileInfo(
-                id = file.id,
-                name = file.name,
+                id = file.id ?: "",
+                name = file.name ?: "",
                 md5Checksum = file.md5Checksum,
                 modifiedTimeMillis = file.modifiedTime?.value ?: 0L,
                 mimeType = file.mimeType
@@ -288,15 +288,14 @@ class GoogleDriveSyncEngine(
                 // 2. Discover remote workspaces in GoPlan folder
                 val remoteItems = adapter.listFiles(goPlanFolder.id)
                 val remoteFolders = remoteItems.filter {
-                    it.mimeType == "application/vnd.google-apps.folder" ||
-                    adapter.findFolder(it.name, goPlanFolder.id) != null
+                    it.mimeType == "application/vnd.google-apps.folder"
                 }
 
                 val currentLocalWorkspaces = repository.getWorkspaces().toMutableList()
                 val localNames = currentLocalWorkspaces.map { it.name }.toSet()
 
                 for (remoteFolder in remoteFolders) {
-                    if (remoteFolder.name !in localNames && remoteFolder.name != "planes") {
+                    if (remoteFolder.name.isNotBlank() && remoteFolder.name !in localNames && remoteFolder.name != "planes") {
                         val created = repository.createWorkspace(remoteFolder.name)
                         currentLocalWorkspaces.add(created)
                     }
@@ -330,7 +329,9 @@ class GoogleDriveSyncEngine(
                     SyncResult.Success(totalUploaded, totalDownloaded, totalConflicts)
                 }
             } catch (e: Exception) {
-                SyncResult.Error("Error en sincronización global: ${e.message ?: "Desconocido"}")
+                android.util.Log.e("GoPlanSync", "Error en sincronización global", e)
+                val detail = e.message ?: e.localizedMessage ?: e.cause?.message ?: e.javaClass.simpleName
+                SyncResult.Error("Error en sincronización global: $detail", e)
             }
         }
     }
@@ -504,7 +505,9 @@ class GoogleDriveSyncEngine(
                     conflictsCount = conflictsCount
                 )
             } catch (e: Exception) {
-                SyncResult.Error(e.message ?: "Error de sincronización", e)
+                android.util.Log.e("GoPlanSync", "Error en sincronización de '${workspace.name}'", e)
+                val detail = e.message ?: e.localizedMessage ?: e.cause?.message ?: e.javaClass.simpleName
+                SyncResult.Error(detail, e)
             }
         }
     }

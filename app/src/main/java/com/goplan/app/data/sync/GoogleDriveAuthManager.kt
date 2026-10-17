@@ -81,7 +81,7 @@ class GoogleDriveAuthManager(
     fun getDriveService(account: GoogleSignInAccount): Drive {
         val ctx = context ?: throw IllegalStateException("Context is required to create Drive service")
         val credential = GoogleAccountCredential.usingOAuth2(
-            ctx, setOf(DriveScopes.DRIVE_FILE, DriveScopes.DRIVE)
+            ctx, setOf(DriveScopes.DRIVE_FILE)
         ).apply {
             selectedAccount = account.account
         }
