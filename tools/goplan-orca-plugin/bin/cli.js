@@ -239,6 +239,46 @@ async function main() {
         break;
       }
 
+      case 'update': {
+        const shouldBuild = flags['--build'] === true;
+        let apkPath = flags['--file'] || flags['--path'];
+
+        if (shouldBuild) {
+          console.log('🔨 Compilando APK debug local (gradlew assembleDebug)...');
+          const { execSync } = await import('node:child_process');
+          const isWindows = process.platform === 'win32';
+          const gradlewCmd = isWindows ? '.\\gradlew.bat assembleDebug' : './gradlew assembleDebug';
+          execSync(gradlewCmd, { stdio: 'inherit' });
+          if (!apkPath) {
+            apkPath = path.resolve(process.cwd(), 'app/build/outputs/apk/debug/app-debug.apk');
+          }
+        }
+
+        if (!apkPath) {
+          const defaultPath = path.resolve(process.cwd(), 'app/build/outputs/apk/debug/app-debug.apk');
+          if (fs.existsSync(defaultPath)) {
+            apkPath = defaultPath;
+          } else {
+            throw new Error(
+              'No se encontró el archivo APK. Ejecuta "goplan update --build" para compilarlo automáticamente o especifica "--file=ruta/al/archivo.apk".'
+            );
+          }
+        }
+
+        if (!fs.existsSync(apkPath)) {
+          throw new Error(`Archivo APK no encontrado en: ${apkPath}`);
+        }
+
+        const stats = fs.statSync(apkPath);
+        const mb = (stats.size / (1024 * 1024)).toFixed(1);
+        console.log(`📤 Enviando APK (${mb} MB) por Wi-Fi al servidor GoPlan (${client.baseUrl})...`);
+
+        const res = await client.uploadApkUpdate(apkPath);
+        console.log(`✅ ${res.message || 'Actualización enviada con éxito.'}`);
+        console.log('📱 ¡Revisa la pantalla de tu móvil! El instalador de paquetes de Android se ha abierto.');
+        break;
+      }
+
       case 'help':
       default: {
         console.log(`
@@ -253,6 +293,7 @@ Comandos disponibles:
   plan <nombre.md>            Lee un archivo de plan de la app
   save-plan --idea=.. --file=.. Ingesta un plan y pasa la idea a IN_PROGRESS
   export [--type=md|zip]      Descarga bundle consolidado
+  update [--build] [--file=..] Actualiza la app en el móvil por Wi-Fi al instante
   config [url] [workspaceId]  Muestra o guarda la configuración en .goplanrc
 `);
         break;

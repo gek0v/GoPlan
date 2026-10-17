@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import com.goplan.app.data.preferences.PreferencesManager
 import com.goplan.app.data.repository.WorkspaceRepository
 import com.goplan.app.data.storage.WorkspaceFileManager
+import com.goplan.app.data.update.AppUpdateManager
 import com.goplan.app.domain.export.AgentExportManager
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.dto.ApiResponse
@@ -93,12 +94,13 @@ class KtorServerRoutesTest {
         testScope.cancel()
     }
 
-    private fun ApplicationTestBuilder.setupServer() {
+    private fun ApplicationTestBuilder.setupServer(appUpdateManager: AppUpdateManager? = null) {
         application {
             configureServer(
                 repository = repository,
                 preferencesManager = preferencesManager,
                 agentExportManager = agentExportManager,
+                appUpdateManager = appUpdateManager,
                 getIpAddress = { "192.168.1.150" },
                 port = 8080
             )
@@ -348,5 +350,52 @@ class KtorServerRoutesTest {
         assertTrue(indexResponse.headers[HttpHeaders.ContentType]?.contains("text/html") == true)
         val indexHtml = indexResponse.bodyAsText()
         assertTrue(indexHtml.contains("GoPlan - Panel de Control Local"))
+    }
+
+    @Test
+    fun testPostSystemUpdate_validApkHeader() = testApplication {
+        val updatesDir = tempFolder.newFolder("updates_cache")
+        val mockUpdateManager = AppUpdateManager(
+            context = null,
+            cacheDirProvider = { updatesDir }
+        )
+        setupServer(mockUpdateManager)
+
+        // Valid ZIP/APK magic bytes: PK\x03\x04
+        val validApkBytes = byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00)
+        val response = client.post("/api/system/update") {
+            header(HttpHeaders.ContentType, "application/vnd.android.package-archive")
+            setBody(validApkBytes)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val apiResponse = json.decodeFromString<ApiResponse>(response.bodyAsText())
+        assertTrue(apiResponse.success)
+        assertTrue(apiResponse.message?.contains("APK recibido con éxito") == true)
+
+        val incomingFile = File(updatesDir, "updates/update_incoming.apk")
+        assertTrue(incomingFile.exists())
+        assertEquals(8, incomingFile.length())
+    }
+
+    @Test
+    fun testPostSystemUpdate_invalidApkHeaderFails() = testApplication {
+        val updatesDir = tempFolder.newFolder("updates_cache_invalid")
+        val mockUpdateManager = AppUpdateManager(
+            context = null,
+            cacheDirProvider = { updatesDir }
+        )
+        setupServer(mockUpdateManager)
+
+        val invalidBytes = "This is not an APK file".toByteArray()
+        val response = client.post("/api/system/update") {
+            header(HttpHeaders.ContentType, "application/octet-stream")
+            setBody(invalidBytes)
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        val apiResponse = json.decodeFromString<ApiResponse>(response.bodyAsText())
+        assertFalse(apiResponse.success)
+        assertTrue(apiResponse.message?.contains("no es un APK válido") == true)
     }
 }

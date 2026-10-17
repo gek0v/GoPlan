@@ -20,6 +20,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -146,7 +147,8 @@ class MainActivity : ComponentActivity() {
                 parser = app.todoMarkdownParser,
                 ktorServerManager = app.ktorServerManager,
                 syncEngine = app.googleDriveSyncEngine,
-                authManager = app.googleDriveAuthManager
+                authManager = app.googleDriveAuthManager,
+                appUpdateManager = app.appUpdateManager
             )
         )
 
@@ -163,6 +165,23 @@ class MainActivity : ComponentActivity() {
                 val errorMsg = res.exceptionOrNull()?.message ?: "Error al iniciar sesión"
                 workspaceViewModel.setSyncError(errorMsg)
                 Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        val recoverableAuthLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                workspaceViewModel.syncAllWorkspaces()
+            }
+        }
+
+        val recoverableAuthIntent by workspaceViewModel.recoverableAuthIntent.collectAsState()
+        LaunchedEffect(recoverableAuthIntent) {
+            val intent = recoverableAuthIntent
+            if (intent != null) {
+                workspaceViewModel.clearRecoverableAuthIntent()
+                recoverableAuthLauncher.launch(intent)
             }
         }
         val workspaceUiState by workspaceViewModel.uiState.collectAsState()

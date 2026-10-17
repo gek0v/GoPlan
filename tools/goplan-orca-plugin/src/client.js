@@ -67,6 +67,10 @@ export class GoPlanClient {
     this.fetchFn = options.fetchFn || globalThis.fetch;
   }
 
+  get baseUrl() {
+    return this.serverUrl;
+  }
+
   /**
    * Internal HTTP request helper with timeout and diagnostic error handling.
    * @private
@@ -454,5 +458,52 @@ export class GoPlanClient {
       const buffer = await res.arrayBuffer();
       return { type: 'zip', content: new Uint8Array(buffer) };
     }
+  }
+
+  /**
+   * Upload binary APK file to GoPlan server for immediate in-place update.
+   * POST /api/system/update
+   * @param {Buffer | Uint8Array | string} apkSource - Raw APK buffer or file path to .apk
+   * @param {object} [options]
+   * @param {number} [options.timeoutMs=60000]
+   * @returns {Promise<{ success: boolean, message: string }>}
+   */
+  async uploadApkUpdate(apkSource, options = {}) {
+    let buffer;
+    if (typeof apkSource === 'string') {
+      const fs = await import('fs');
+      if (!fs.existsSync(apkSource)) {
+        throw new Error(`APK file not found at: ${apkSource}`);
+      }
+      buffer = fs.readFileSync(apkSource);
+    } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(apkSource)) {
+      buffer = apkSource;
+    } else if (apkSource instanceof Uint8Array) {
+      buffer = apkSource;
+    } else {
+      throw new Error('Invalid APK source: must be a file path string or Buffer/Uint8Array');
+    }
+
+    if (buffer.length < 4) {
+      throw new Error('Invalid APK: file is too small');
+    }
+
+    // Verify ZIP/APK magic bytes: 0x50 0x4B 0x03 0x04
+    if (buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+      throw new Error('Invalid APK header: file is not a valid ZIP/APK archive');
+    }
+
+    const res = await this._request('/api/system/update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Length': String(buffer.length)
+      },
+      body: buffer,
+      timeoutMs: options.timeoutMs || 60000
+    });
+
+    const result = await res.json();
+    return result;
   }
 }

@@ -50,7 +50,7 @@ describe('Config Module', () => {
     delete process.env.GOPLAN_WORKSPACE_ID;
 
     try {
-      const config = loadConfig({ configPath: 'non_existent_file_xyz' });
+      const config = loadConfig({ configPath: 'non_existent_file_xyz', globalConfigPath: 'non_existent_global_xyz' });
       assert.strictEqual(config.serverUrl, DEFAULT_SERVER_URL);
       assert.strictEqual(config.workspaceId, null);
       assert.strictEqual(config.timeoutMs, DEFAULT_TIMEOUT_MS);

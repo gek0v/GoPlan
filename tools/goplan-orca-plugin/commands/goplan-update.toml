@@ -1,0 +1,9 @@
+description = "Compila y despliega la aplicación GoPlan por Wi-Fi directamente en tu móvil sin cables"
+prompt = """
+Ejecuta la actualización por Wi-Fi de GoPlan:
+1. Si no existe un build reciente o si se solicita recompilar, ejecuta `.\\gradlew.bat assembleDebug` en el directorio raíz del proyecto.
+2. Comprueba que el servidor móvil esté accesible en la URL configurada llamando a `goplan_status`.
+3. Envía el APK compilado en `app/build/outputs/apk/debug/app-debug.apk` ejecutando:
+   `node tools/goplan-orca-plugin/bin/cli.js update`
+4. Informa al usuario de que el instalador nativo de Android ya está abierto en su dispositivo para confirmar la actualización en 1 toque.
+"""

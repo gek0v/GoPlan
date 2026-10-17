@@ -10,19 +10,27 @@ import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.TodoLine
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.domain.model.WorkspaceSummary
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.goplan.app.data.sync.GoogleDriveAuthManager
 import com.goplan.app.data.sync.GoogleDriveSyncEngine
 import com.goplan.app.data.sync.model.SyncResult
+import com.goplan.app.data.update.AppUpdateManager
+import com.goplan.app.data.update.UpdateCheckResult
+import com.goplan.app.data.update.UpdateDownloadState
+import com.goplan.app.data.update.UpdateInfo
 import com.goplan.app.domain.parser.GeminiPlanParser
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,6 +58,7 @@ class WorkspaceViewModel(
     private val ktorServerManager: KtorServerManager? = null,
     private val syncEngine: GoogleDriveSyncEngine? = null,
     private val authManager: GoogleDriveAuthManager? = null,
+    private val appUpdateManager: AppUpdateManager? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
@@ -73,6 +82,52 @@ class WorkspaceViewModel(
     private val _syncSuccessMessage = MutableStateFlow<String?>(null)
     val syncSuccessMessage: StateFlow<String?> = _syncSuccessMessage.asStateFlow()
 
+    private val _recoverableAuthIntent = MutableStateFlow<android.content.Intent?>(null)
+    val recoverableAuthIntent: StateFlow<android.content.Intent?> = _recoverableAuthIntent.asStateFlow()
+
+    fun clearRecoverableAuthIntent() {
+        _recoverableAuthIntent.value = null
+    }
+
+    private val _showWorkspaceSheet = MutableStateFlow(false)
+    val showWorkspaceSheet: StateFlow<Boolean> = _showWorkspaceSheet.asStateFlow()
+
+    private val _workspaceSummaries = MutableStateFlow<List<WorkspaceSummary>>(emptyList())
+    val workspaceSummaries: StateFlow<List<WorkspaceSummary>> = _workspaceSummaries.asStateFlow()
+
+    fun openWorkspaceSheet() {
+        _showWorkspaceSheet.value = true
+        loadWorkspaceSummaries()
+    }
+
+    fun closeWorkspaceSheet() {
+        _showWorkspaceSheet.value = false
+    }
+
+    private var loadSummariesJob: Job? = null
+
+    fun loadWorkspaceSummaries() {
+        loadSummariesJob?.cancel()
+        loadSummariesJob = viewModelScope.launch(ioDispatcher) {
+            val activeId = _uiState.value.activeWorkspace?.id
+            val summaries = workspaceRepository.getAllWorkspaceSummaries(activeId)
+            _workspaceSummaries.value = summaries
+        }
+    }
+
+    // OTA & Update states
+    private val _updateCheckResult = MutableStateFlow<UpdateCheckResult?>(null)
+    val updateCheckResult: StateFlow<UpdateCheckResult?> = _updateCheckResult.asStateFlow()
+
+    private val _updateDownloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
+    val updateDownloadState: StateFlow<UpdateDownloadState> = _updateDownloadState.asStateFlow()
+
+    private val _showUpdateDialog = MutableStateFlow(false)
+    val showUpdateDialog: StateFlow<Boolean> = _showUpdateDialog.asStateFlow()
+
+    private val _isCheckingUpdate = MutableStateFlow(false)
+    val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate.asStateFlow()
+
     fun toggleServer(enable: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             if (enable) {
@@ -83,17 +138,79 @@ class WorkspaceViewModel(
         }
     }
 
+    fun checkForUpdates(silent: Boolean = false) {
+        val manager = appUpdateManager ?: return
+        viewModelScope.launch(ioDispatcher) {
+            _isCheckingUpdate.value = true
+            val result = manager.checkForUpdates()
+            _updateCheckResult.value = result
+            _isCheckingUpdate.value = false
+            if (result is UpdateCheckResult.UpdateAvailable) {
+                _showUpdateDialog.value = true
+            } else if (!silent && result is UpdateCheckResult.UpToDate) {
+                _showUpdateDialog.value = false
+            }
+        }
+    }
+
+    fun downloadAndInstallUpdate(updateInfo: UpdateInfo) {
+        val manager = appUpdateManager ?: return
+        viewModelScope.launch(ioDispatcher) {
+            _updateDownloadState.value = UpdateDownloadState.Downloading(0f, 0L, updateInfo.apkSize)
+            val result = manager.downloadUpdate(updateInfo) { progress, downloaded, total ->
+                _updateDownloadState.value = UpdateDownloadState.Downloading(progress, downloaded, total)
+            }
+            if (result.isSuccess) {
+                val apkFile = result.getOrThrow()
+                _updateDownloadState.value = UpdateDownloadState.ReadyToInstall(apkFile.absolutePath)
+                manager.promptInstall(apkFile)
+            } else {
+                val errorMsg = result.exceptionOrNull()?.message ?: "Error al descargar la actualización"
+                _updateDownloadState.value = UpdateDownloadState.Error(errorMsg)
+            }
+        }
+    }
+
+    fun installDownloadedApk(apkFile: File) {
+        appUpdateManager?.promptInstall(apkFile)
+    }
+
+    fun openUpdateDialog() {
+        if (_updateCheckResult.value is UpdateCheckResult.UpdateAvailable) {
+            _showUpdateDialog.value = true
+        } else {
+            checkForUpdates(silent = false)
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _showUpdateDialog.value = false
+        if (_updateDownloadState.value is UpdateDownloadState.Error) {
+            _updateDownloadState.value = UpdateDownloadState.Idle
+        }
+    }
+
     private val tagRegex = Regex("""(?<=^|\s)#([a-zA-Z0-9_-]+)""")
 
     init {
         loadInitialData()
+        checkForUpdates(silent = true)
         viewModelScope.launch(ioDispatcher) {
             workspaceRepository.workspaceChangesFlow.collect { changedWorkspaceId ->
                 val currentActive = _uiState.value.activeWorkspace
                 if (currentActive != null && currentActive.id == changedWorkspaceId) {
                     loadWorkspace(currentActive)
                 }
+                loadWorkspaceSummaries()
             }
+        }
+        viewModelScope.launch(ioDispatcher) {
+            _uiState
+                .map { it.activeWorkspace?.id to it.workspaces }
+                .distinctUntilChanged()
+                .collect {
+                    loadWorkspaceSummaries()
+                }
         }
     }
 
@@ -133,6 +250,7 @@ class WorkspaceViewModel(
                 preferencesManager.saveActiveWorkspace(workspace.id)
                 _uiState.update { it.copy(selectedTags = emptySet(), errorMessage = null) }
                 loadWorkspaceData(workspace)
+                loadWorkspaceSummaries()
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al cambiar de workspace") }
             }
@@ -152,6 +270,42 @@ class WorkspaceViewModel(
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = e.message ?: "Error al crear workspace") }
             }
+        }
+    }
+
+    fun createAndSwitchWorkspace(name: String): Result<Workspace> {
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) {
+            return Result.failure(IllegalArgumentException("El nombre no puede estar vacío"))
+        }
+        val invalidCharsRegex = Regex("""[\\/:*?"<>|]""")
+        if (invalidCharsRegex.containsMatchIn(cleanName)) {
+            return Result.failure(IllegalArgumentException("El nombre contiene caracteres inválidos"))
+        }
+        val existing = workspaceRepository.getWorkspaces()
+        if (existing.any { it.name.equals(cleanName, ignoreCase = true) }) {
+            return Result.failure(IllegalArgumentException("Ya existe un espacio con ese nombre"))
+        }
+
+        return try {
+            val created = workspaceRepository.createWorkspace(cleanName)
+            val allWorkspaces = workspaceRepository.getWorkspaces()
+            viewModelScope.launch(ioDispatcher) {
+                preferencesManager.saveActiveWorkspace(created.id)
+            }
+            _uiState.update {
+                it.copy(
+                    workspaces = allWorkspaces,
+                    selectedTags = emptySet(),
+                    errorMessage = null
+                )
+            }
+            loadWorkspaceData(created)
+            loadWorkspaceSummaries()
+            closeWorkspaceSheet()
+            Result.success(created)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -337,10 +491,18 @@ class WorkspaceViewModel(
         }
     }
 
+    fun syncAllWorkspaces() {
+        syncWorkspaces(onlyActive = false)
+    }
+
     fun syncActiveWorkspace() {
+        syncWorkspaces(onlyActive = true)
+    }
+
+    fun syncWorkspaces(onlyActive: Boolean = false) {
         if (_isSyncing.value) return
         val activeWs = _uiState.value.activeWorkspace
-        if (activeWs == null) {
+        if (onlyActive && activeWs == null) {
             _syncError.value = "No hay workspace activo seleccionado"
             return
         }
@@ -355,7 +517,13 @@ class WorkspaceViewModel(
             _syncError.value = null
             _syncSuccessMessage.value = null
             try {
-                when (val result = engine.syncWorkspace(activeWs)) {
+                val result = if (onlyActive) {
+                    engine.syncWorkspace(activeWs!!)
+                } else {
+                    engine.syncAllWorkspaces()
+                }
+
+                when (result) {
                     is SyncResult.Success -> {
                         _lastSyncTimestamp.value = System.currentTimeMillis()
                         val parts = mutableListOf<String>()
@@ -363,17 +531,35 @@ class WorkspaceViewModel(
                         if (result.downloadedCount > 0) parts.add("${result.downloadedCount} descargados")
                         if (result.conflictsCount > 0) parts.add("${result.conflictsCount} conflictos")
                         val summary = if (parts.isNotEmpty()) " (${parts.joinToString(", ")})" else ""
-                        _syncSuccessMessage.value = "Sincronización completada$summary"
+
+                        val allWorkspaces = workspaceRepository.getWorkspaces()
+                        _uiState.update { it.copy(workspaces = allWorkspaces) }
+
+                        val prefix = if (onlyActive) {
+                            "Sincronización completada para '${activeWs?.name}'"
+                        } else {
+                            "Sincronización completada (Global: ${allWorkspaces.size} espacios)"
+                        }
+
+                        _syncSuccessMessage.value = "$prefix$summary"
                         _syncError.value = null
-                        loadWorkspaceData(activeWs)
+
+                        val currentActive = _uiState.value.activeWorkspace
+                        if (currentActive != null) {
+                            loadWorkspaceData(currentActive)
+                        }
                     }
                     is SyncResult.Error -> {
                         _syncError.value = result.message
                         _syncSuccessMessage.value = null
+                        if (result.throwable is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
+                            _recoverableAuthIntent.value = result.throwable.intent
+                        }
                     }
                 }
             } catch (e: Exception) {
-                _syncError.value = e.message ?: "Error desconocido al sincronizar"
+                val detail = e.localizedMessage ?: e.message ?: e.cause?.message ?: e.javaClass.simpleName
+                _syncError.value = "Error al sincronizar: $detail"
                 _syncSuccessMessage.value = null
             } finally {
                 _isSyncing.value = false
@@ -467,6 +653,7 @@ class WorkspaceViewModel(
             ktorServerManager: KtorServerManager? = null,
             syncEngine: GoogleDriveSyncEngine? = null,
             authManager: GoogleDriveAuthManager? = null,
+            appUpdateManager: AppUpdateManager? = null,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -478,6 +665,7 @@ class WorkspaceViewModel(
                     ktorServerManager = ktorServerManager,
                     syncEngine = syncEngine,
                     authManager = authManager,
+                    appUpdateManager = appUpdateManager,
                     ioDispatcher = ioDispatcher
                 ) as T
             }

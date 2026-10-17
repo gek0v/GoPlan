@@ -52,8 +52,11 @@ fun GoogleDriveSyncDialog(
     syncError: String?,
     syncSuccessMessage: String? = null,
     sha1Fingerprint: String = "No disponible",
+    activeWorkspaceName: String? = null,
+    totalWorkspacesCount: Int = 1,
     onSignInGoogle: () -> Unit,
     onSyncNow: () -> Unit,
+    onSyncActiveWorkspace: (() -> Unit)? = null,
     onSignOutGoogle: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -143,9 +146,43 @@ fun GoogleDriveSyncDialog(
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "1. Habilita 'Google Drive API' en tu Google Cloud Console.\n" +
-                                        "2. En 'Pantalla de consentimiento OAuth', añade tu correo como Usuario de Prueba (Test User).\n" +
-                                        "3. Crea una credencial 'ID de cliente de OAuth 2.0' (Android) con:",
+                                text = "Para conectar Google Drive en desarrollo debes configurar tu proyecto en Google Cloud Console:\n\n" +
+                                        "1. Habilitar la API 'Google Drive API'.\n" +
+                                        "2. En 'Pantalla de consentimiento OAuth' -> 'Usuarios de prueba', añade el correo con el que iniciarás sesión.\n" +
+                                        "3. En 'Permisos' (Scopes), añade 'drive.file':",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Permiso / Scope:", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        text = "https://www.googleapis.com/auth/drive.file",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString("https://www.googleapis.com/auth/drive.file"))
+                                        Toast.makeText(context, "Scope copiado", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Text("Copiar", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "4. En 'Credenciales' -> Crear 'ID de cliente de OAuth 2.0' (Android) con:",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -247,6 +284,13 @@ fun GoogleDriveSyncDialog(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                    if (activeWorkspaceName != null) {
+                                        Text(
+                                            text = "Espacio actual: $activeWorkspaceName ($totalWorkspacesCount ${if (totalWorkspacesCount == 1) "espacio" else "espacios"})",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Text(
                                         text = "Última sincronización: ${formatSyncTimestamp(lastSyncTimestamp)}",
                                         style = MaterialTheme.typography.bodySmall,
@@ -307,7 +351,24 @@ fun GoogleDriveSyncDialog(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sincronizar ahora")
+                        Text("Sincronizar todo (Global)")
+                    }
+
+                    if (onSyncActiveWorkspace != null && activeWorkspaceName != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = onSyncActiveWorkspace,
+                            enabled = !isSyncing,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudSync,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sincronizar solo '$activeWorkspaceName'")
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))

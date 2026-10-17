@@ -11,6 +11,11 @@ import com.goplan.app.data.sync.DriveServiceAdapter
 import com.goplan.app.data.sync.GoogleDriveAuthManager
 import com.goplan.app.data.sync.GoogleDriveSyncEngine
 import com.goplan.app.data.sync.model.RemoteFileInfo
+import com.goplan.app.data.update.AppUpdateManager
+import com.goplan.app.data.update.ReleaseApiClient
+import com.goplan.app.data.update.UpdateCheckResult
+import com.goplan.app.data.update.UpdateDownloadState
+import com.goplan.app.data.update.UpdateInfo
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.parser.TodoMarkdownParser
 import com.goplan.app.server.KtorServerManager
@@ -523,6 +528,40 @@ class WorkspaceViewModelTest {
     }
 
     @Test
+    fun testSyncAllWorkspaces_success_updatesTimestampAndRefreshesWorkspaces() = runTest {
+        val account = GoogleSignInAccount.createDefault()
+        val authManager = GoogleDriveAuthManager(
+            context = null,
+            existingAccountProvider = { account }
+        )
+        val adapter = FakeDriveServiceAdapter()
+        val syncEngine = GoogleDriveSyncEngine(
+            repository = repository,
+            authManager = authManager,
+            parser = parser,
+            customAdapter = adapter,
+            ioDispatcher = testDispatcher
+        )
+
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            syncEngine = syncEngine,
+            authManager = authManager,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.syncAllWorkspaces()
+
+        assertFalse(viewModel.isSyncing.value)
+        assertNotNull(viewModel.lastSyncTimestamp.value)
+        assertNull(viewModel.syncError.value)
+        assertNotNull(viewModel.syncSuccessMessage.value)
+        assertTrue(viewModel.syncSuccessMessage.value!!.contains("Global"))
+    }
+
+    @Test
     fun testSyncActiveWorkspace_error_updatesSyncError() = runTest {
         val account = GoogleSignInAccount.createDefault()
         val authManager = GoogleDriveAuthManager(
@@ -580,6 +619,131 @@ class WorkspaceViewModelTest {
         assertNull(viewModel.signedInAccount.value)
         assertNull(viewModel.syncError.value)
         assertNull(viewModel.syncSuccessMessage.value)
+    }
+
+    @Test
+    fun testCheckForUpdates_availableShowsDialog() = runTest {
+        val mockClient = object : ReleaseApiClient {
+            override suspend fun fetchLatestRelease(): String = """
+                {
+                  "tag_name": "v9.9.9",
+                  "name": "Super release",
+                  "body": "Amazing features",
+                  "assets": [{ "name": "app.apk", "browser_download_url": "https://example.com/app.apk", "size": 12345 }]
+                }
+            """.trimIndent()
+            override suspend fun downloadFile(url: String, destinationFile: File, onProgress: (Float, Long, Long) -> Unit) {}
+        }
+        val updateManager = AppUpdateManager(
+            context = null,
+            apiClient = mockClient,
+            ioDispatcher = testDispatcher,
+            cacheDirProvider = { tempFolder.newFolder("update_vm_test") }
+        )
+        val viewModel = WorkspaceViewModel(
+            workspaceRepository = repository,
+            preferencesManager = preferencesManager,
+            parser = parser,
+            appUpdateManager = updateManager,
+            ioDispatcher = testDispatcher
+        )
+
+        viewModel.checkForUpdates(silent = false)
+
+        assertTrue(viewModel.updateCheckResult.value is UpdateCheckResult.UpdateAvailable)
+        assertTrue(viewModel.showUpdateDialog.value)
+
+        viewModel.dismissUpdateDialog()
+        assertFalse(viewModel.showUpdateDialog.value)
+    }
+
+    @Test
+    fun testOpenAndCloseWorkspaceSheet() = runTest {
+        val viewModel = createViewModel()
+        assertFalse(viewModel.showWorkspaceSheet.value)
+
+        viewModel.openWorkspaceSheet()
+        assertTrue(viewModel.showWorkspaceSheet.value)
+
+        viewModel.closeWorkspaceSheet()
+        assertFalse(viewModel.showWorkspaceSheet.value)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_success_switchesAndRefreshes() = runTest {
+        val viewModel = createViewModel()
+
+        val result = viewModel.createAndSwitchWorkspace("Project Delta")
+
+        assertTrue(result.isSuccess)
+        val created = result.getOrNull()!!
+        assertEquals("Project Delta", created.name)
+        assertEquals(created.id, viewModel.uiState.value.activeWorkspace?.id)
+        assertFalse(viewModel.showWorkspaceSheet.value)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_duplicateName_fails() = runTest {
+        val viewModel = createViewModel()
+        viewModel.createAndSwitchWorkspace("Existing")
+
+        val duplicateResult = viewModel.createAndSwitchWorkspace("existing")
+
+        assertTrue(duplicateResult.isFailure)
+        assertTrue(duplicateResult.exceptionOrNull()?.message?.contains("Ya existe") == true)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_invalidChars_fails() = runTest {
+        val viewModel = createViewModel()
+
+        val result = viewModel.createAndSwitchWorkspace("bad/name?*")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("inválidos") == true)
+    }
+
+    @Test
+    fun testCreateAndSwitchWorkspace_blankName_fails() = runTest {
+        val viewModel = createViewModel()
+
+        val result = viewModel.createAndSwitchWorkspace("   ")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("vacío") == true)
+    }
+
+    @Test
+    fun testLoadWorkspaceSummaries_updatesState() = runTest {
+        val viewModel = createViewModel()
+        viewModel.createAndSwitchWorkspace("Space 1")
+        viewModel.createAndSwitchWorkspace("Space 2")
+
+        viewModel.loadWorkspaceSummaries()
+
+        val summaries = viewModel.workspaceSummaries.value
+        assertTrue(summaries.size >= 2)
+        val activeSummary = summaries.find { it.workspace.name == "Space 2" }
+        assertNotNull(activeSummary)
+        assertTrue(activeSummary?.isActive == true)
+    }
+
+    @Test
+    fun testLoadWorkspaceSummaries_multipleCalls_cancelsPreviousAndCompletesWithLatestState() = runTest {
+        val viewModel = createViewModel()
+        viewModel.createAndSwitchWorkspace("Project A")
+        viewModel.createAndSwitchWorkspace("Project B")
+
+        // Rapid successive invocations should cancel previous in-flight jobs and produce correct summaries
+        viewModel.loadWorkspaceSummaries()
+        viewModel.loadWorkspaceSummaries()
+        viewModel.loadWorkspaceSummaries()
+
+        val summaries = viewModel.workspaceSummaries.value
+        assertEquals(3, summaries.size) // Default, Project A, Project B
+        val activeSummary = summaries.find { it.workspace.name == "Project B" }
+        assertNotNull(activeSummary)
+        assertTrue(activeSummary?.isActive == true)
     }
 }
 
