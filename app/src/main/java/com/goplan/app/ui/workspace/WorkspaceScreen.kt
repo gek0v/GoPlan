@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudQueue
@@ -28,8 +27,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -60,6 +57,7 @@ import com.goplan.app.domain.model.Idea
 import com.goplan.app.domain.model.IdeaStatus
 import com.goplan.app.domain.model.PlanLink
 import com.goplan.app.domain.model.Workspace
+import com.goplan.app.domain.model.WorkspaceSummary
 import com.goplan.app.data.update.UpdateCheckResult
 import com.goplan.app.data.update.UpdateDownloadState
 import com.goplan.app.data.update.UpdateInfo
@@ -95,6 +93,8 @@ fun WorkspaceScreen(
     val updateDownloadState by viewModel.updateDownloadState.collectAsState()
     val showUpdateDialog by viewModel.showUpdateDialog.collectAsState()
     val isCheckingUpdate by viewModel.isCheckingUpdate.collectAsState()
+    val showWorkspaceSheet by viewModel.showWorkspaceSheet.collectAsState()
+    val workspaceSummaries by viewModel.workspaceSummaries.collectAsState()
 
     val view = LocalView.current
     DisposableEffect(isServerRunning) {
@@ -118,6 +118,10 @@ fun WorkspaceScreen(
         updateDownloadState = updateDownloadState,
         showUpdateDialog = showUpdateDialog,
         isCheckingUpdate = isCheckingUpdate,
+        showWorkspaceSheet = showWorkspaceSheet,
+        workspaceSummaries = workspaceSummaries,
+        onOpenWorkspaceSheet = { viewModel.openWorkspaceSheet() },
+        onCloseWorkspaceSheet = { viewModel.closeWorkspaceSheet() },
         onOpenUpdateDialog = { viewModel.openUpdateDialog() },
         onDismissUpdateDialog = { viewModel.dismissUpdateDialog() },
         onDownloadUpdate = { info -> viewModel.downloadAndInstallUpdate(info) },
@@ -129,7 +133,7 @@ fun WorkspaceScreen(
         onSignOutGoogle = { viewModel.signOutGoogle() },
         onToggleServer = { viewModel.toggleServer(it) },
         onSwitchWorkspace = { viewModel.switchWorkspace(it) },
-        onCreateWorkspace = { viewModel.createWorkspace(it) },
+        onCreateWorkspace = { viewModel.createAndSwitchWorkspace(it) },
         onAddIdea = { viewModel.addIdea(it) },
         onCycleStatus = { viewModel.cycleStatus(it) },
         onDiscardIdea = { viewModel.discardIdea(it) },
@@ -174,8 +178,12 @@ fun WorkspaceScreenContent(
     onSyncActiveWorkspace: () -> Unit = {},
     onSignOutGoogle: () -> Unit = {},
     onToggleServer: (Boolean) -> Unit = {},
+    showWorkspaceSheet: Boolean = false,
+    workspaceSummaries: List<WorkspaceSummary> = emptyList(),
+    onOpenWorkspaceSheet: () -> Unit = {},
+    onCloseWorkspaceSheet: () -> Unit = {},
     onSwitchWorkspace: (Workspace) -> Unit,
-    onCreateWorkspace: (String) -> Unit,
+    onCreateWorkspace: (String) -> Result<Workspace> = { Result.failure(NotImplementedError()) },
     onAddIdea: (String) -> Unit,
     onCycleStatus: (Idea) -> Unit,
     onDiscardIdea: (Idea) -> Unit,
@@ -192,113 +200,20 @@ fun WorkspaceScreenContent(
     onExport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var workspaceDropdownExpanded by remember { mutableStateOf(false) }
-    var showCreateWorkspaceDialog by remember { mutableStateOf(false) }
     var showServerDialog by remember { mutableStateOf(false) }
     var showSyncDialog by remember { mutableStateOf(false) }
-    var newWorkspaceName by remember { mutableStateOf("") }
     var ideaToEdit by remember { mutableStateOf<Idea?>(null) }
     var ideaToDelete by remember { mutableStateOf<Idea?>(null) }
-
-    if (showCreateWorkspaceDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showCreateWorkspaceDialog = false
-                newWorkspaceName = ""
-            },
-            title = { Text("Nuevo Workspace") },
-            text = {
-                OutlinedTextField(
-                    value = newWorkspaceName,
-                    onValueChange = { newWorkspaceName = it },
-                    label = { Text("Nombre del workspace") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val name = newWorkspaceName.trim()
-                        if (name.isNotBlank()) {
-                            onCreateWorkspace(name)
-                            newWorkspaceName = ""
-                            showCreateWorkspaceDialog = false
-                        }
-                    },
-                    enabled = newWorkspaceName.trim().isNotBlank()
-                ) {
-                    Text("Crear")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showCreateWorkspaceDialog = false
-                        newWorkspaceName = ""
-                    }
-                ) {
-                    Text("Cancelar")
-                }
-            }
-        )
-    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 title = {
-                    Box {
-                        Row(
-                            modifier = Modifier
-                                .clickable { workspaceDropdownExpanded = true }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = uiState.activeWorkspace?.name ?: "GoPlan",
-                                style = MaterialTheme.typography.titleLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = "Cambiar workspace"
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = workspaceDropdownExpanded,
-                            onDismissRequest = { workspaceDropdownExpanded = false }
-                        ) {
-                            uiState.workspaces.forEach { ws ->
-                                DropdownMenuItem(
-                                    text = { Text(ws.name) },
-                                    onClick = {
-                                        workspaceDropdownExpanded = false
-                                        onSwitchWorkspace(ws)
-                                    },
-                                    leadingIcon = if (ws.id == uiState.activeWorkspace?.id) {
-                                        { Icon(Icons.Default.Check, contentDescription = null) }
-                                    } else null
-                                )
-                            }
-
-                            HorizontalDivider()
-
-                            DropdownMenuItem(
-                                text = { Text("+ Crear Workspace") },
-                                onClick = {
-                                    workspaceDropdownExpanded = false
-                                    showCreateWorkspaceDialog = true
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Add, contentDescription = null)
-                                }
-                            )
-                        }
-                    }
+                    WorkspaceChip(
+                        workspaceName = uiState.activeWorkspace?.name ?: "GoPlan",
+                        onClick = onOpenWorkspaceSheet
+                    )
                 },
                 actions = {
                     // Google Drive sync action
@@ -502,6 +417,18 @@ fun WorkspaceScreenContent(
                     Text("Cancelar")
                 }
             }
+        )
+    }
+
+    if (showWorkspaceSheet) {
+        WorkspaceSelectionBottomSheet(
+            summaries = workspaceSummaries,
+            onSelectWorkspace = { ws ->
+                onSwitchWorkspace(ws)
+                onCloseWorkspaceSheet()
+            },
+            onCreateWorkspace = onCreateWorkspace,
+            onDismiss = onCloseWorkspaceSheet
         )
     }
 
